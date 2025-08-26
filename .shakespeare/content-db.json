@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2025-08-26T10:49:43.896Z",
+  "lastUpdated": "2025-08-26T11:11:37.386Z",
   "entries": {
     "../test-content.md": {
       "path": "../test-content.md",
@@ -37,23 +37,9 @@
       "generate": "anthropic"
     },
     "workflows": {
-      "discover": {
-        "resetExisting": false,
-        "autoInit": true
-      },
-      "review": {
-        "batchSize": 5,
-        "estimateCosts": true,
-        "retryFailures": true
-      },
       "improve": {
         "maxCount": 3,
-        "requireReviewFirst": true,
-        "targetThreshold": 7
-      },
-      "complete": {
-        "improveCount": 3,
-        "runDiscovery": true
+        "requireReviewFirst": true
       }
     }
   }
