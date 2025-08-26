@@ -138,6 +138,8 @@ export declare class Shakespeare {
     getModelOptions(): AIModelOptions | undefined;
     /**
      * Log message if verbose mode is enabled
+     * @param message - The message to log
+     * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
      */
     private log;
     /**

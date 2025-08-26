@@ -986,10 +986,17 @@ var Shakespeare = class _Shakespeare {
   }
   /**
    * Log message if verbose mode is enabled
+   * @param message - The message to log
+   * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
    */
-  log(message) {
-    if (this.verbose) {
-      console.log(message);
+  log(message, level = "verbose") {
+    if (level === "always" || this.verbose && (level === "verbose" || level === "debug")) {
+      if (this.verbose && level !== "always") {
+        const timestamp = (/* @__PURE__ */ new Date()).toISOString().substring(11, 23);
+        console.log(`[${timestamp}] ${message}`);
+      } else {
+        console.log(message);
+      }
     }
   }
   // ========== HIGH-LEVEL WORKFLOW METHODS ==========
@@ -1036,36 +1043,123 @@ var Shakespeare = class _Shakespeare {
    */
   async reviewAll() {
     const startTime = Date.now();
-    this.log("\u{1F4CA} Starting content review...");
+    this.log("\u{1F4CA} Starting content review...", "always");
+    if (this.verbose) {
+      this.log("\u{1F527} Configuration Details:");
+      this.log(`   Root Directory: ${this.rootDir}`);
+      this.log(`   Database Path: ${this.dbPath}`);
+      this.log(`   Content Collection: ${this.config.contentCollection || "auto-detected"}`);
+      this.log(`   Model: ${this.config.model || "default"}`);
+      this.log(`   Provider: ${this.config.provider || "default"}`);
+      this.log(`   Verbose Mode: ${this.verbose ? "\u2713 enabled" : "\u2717 disabled"}`);
+      this.log("");
+    }
     await this.initialize();
     const database = this._db.getData();
-    const contentNeedingReview = Object.entries(database.entries).filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
+    this.log("\u{1F4CB} Database Status:", "always");
+    this.log(`   Total entries: ${Object.keys(database.entries || {}).length}`, "always");
+    this.log(`   Last updated: ${database.lastUpdated || "never"}`, "always");
+    const allEntries = Object.entries(database.entries || {});
+    const statusCounts = allEntries.reduce((counts, [, entry]) => {
+      counts[entry.status] = (counts[entry.status] || 0) + 1;
+      return counts;
+    }, {});
+    this.log("   Status breakdown:", "always");
+    Object.entries(statusCounts).forEach(([status, count]) => {
+      this.log(`     ${status}: ${count}`, "always");
+    });
+    this.log("", "always");
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
     if (contentNeedingReview.length === 0) {
-      this.log("\u2705 No content needs review");
+      this.log("\u2705 No content needs review", "always");
       return {
         successful: [],
         failed: [],
         summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
       };
     }
-    this.log(`\u{1F4DD} Found ${contentNeedingReview.length} files needing review`);
+    this.log(`\u{1F4DD} Found ${contentNeedingReview.length} files needing review`, "always");
+    if (this.verbose) {
+      this.log("\u{1F4C2} Files to review:");
+      contentNeedingReview.forEach((filePath, index) => {
+        this.log(`   ${index + 1}. ${path3.basename(filePath)}`);
+      });
+      this.log("");
+    }
     const successful = [];
     const failed = [];
+    let totalFileSize = 0;
+    let totalScoreTime = 0;
     for (let i = 0; i < contentNeedingReview.length; i++) {
       const filePath = contentNeedingReview[i];
+      const fileStartTime = Date.now();
       try {
-        this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`);
+        this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`, "always");
+        if (this.verbose) {
+          try {
+            const fs4 = await import("fs/promises");
+            const stats = await fs4.stat(filePath);
+            const fileSize = Math.round(stats.size / 1024 * 10) / 10;
+            totalFileSize += stats.size;
+            this.log(`   \u{1F4C4} File size: ${fileSize} KB`, "debug");
+            this.log(`   \u{1F4C5} Last modified: ${stats.mtime.toISOString()}`, "debug");
+          } catch (statError) {
+            this.log(`   \u26A0\uFE0F Could not read file stats: ${statError}`, "debug");
+          }
+        }
+        const reviewStartTime = Date.now();
         await this.reviewContent(filePath);
+        const reviewDuration = Date.now() - reviewStartTime;
+        totalScoreTime += reviewDuration;
+        const updatedDatabase = this._db.getData();
+        const updatedEntry = updatedDatabase.entries[filePath];
         successful.push(filePath);
-        this.log(`\u2705 Reviewed: ${path3.basename(filePath)}`);
+        const fileDuration = Date.now() - fileStartTime;
+        this.log(`\u2705 Reviewed: ${path3.basename(filePath)} (${fileDuration}ms)`, "always");
+        if (this.verbose && updatedEntry) {
+          this.log("   \u{1F4CA} Quality Scores:");
+          this.log(`      Readability: ${updatedEntry.currentScores.readability}/10`);
+          this.log(`      SEO Score: ${updatedEntry.currentScores.seoScore}/10`);
+          this.log(`      Technical Accuracy: ${updatedEntry.currentScores.technicalAccuracy}/10`);
+          this.log(`      Engagement: ${updatedEntry.currentScores.engagement}/10`);
+          this.log(`      Content Depth: ${updatedEntry.currentScores.contentDepth}/10`);
+          const avgScore = Object.values(updatedEntry.currentScores).reduce((a, b) => a + b, 0) / 5;
+          this.log(`   \u{1F3AF} Average Score: ${Math.round(avgScore * 10) / 10}/10`);
+          this.log(`   \u23F1\uFE0F Review Time: ${reviewDuration}ms`, "debug");
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         failed.push({ path: filePath, error: errorMessage });
-        this.log(`\u274C Failed to review ${path3.basename(filePath)}: ${errorMessage}`);
+        const fileDuration = Date.now() - fileStartTime;
+        this.log(`\u274C Failed to review ${path3.basename(filePath)} (${fileDuration}ms): ${errorMessage}`, "always");
+        if (this.verbose) {
+          this.log(`   \u{1F50D} Error details: ${error instanceof Error ? error.stack : errorMessage}`, "debug");
+        }
+      }
+      const progress = Math.round((i + 1) / contentNeedingReview.length * 100);
+      if (this.verbose) {
+        this.log(`   \u{1F4C8} Progress: ${progress}% (${i + 1}/${contentNeedingReview.length})`, "debug");
+        this.log("", "debug");
       }
     }
     const duration = Date.now() - startTime;
-    this.log(`\u{1F389} Review completed: ${successful.length} succeeded, ${failed.length} failed`);
+    this.log(`\u{1F389} Review completed: ${successful.length} succeeded, ${failed.length} failed`, "always");
+    if (this.verbose) {
+      this.log("\u{1F4CA} Summary Statistics:");
+      this.log(`   \u23F1\uFE0F Total time: ${duration}ms (${Math.round(duration / 1e3 * 10) / 10}s)`);
+      this.log(`   \u{1F4C4} Total file size: ${Math.round(totalFileSize / 1024 * 10) / 10} KB`);
+      this.log(`   \u{1F916} Total scoring time: ${totalScoreTime}ms`);
+      this.log(`   \u26A1 Average time per file: ${Math.round(duration / contentNeedingReview.length)}ms`);
+      if (successful.length > 0) {
+        this.log(`   \u2705 Success rate: ${Math.round(successful.length / contentNeedingReview.length * 100)}%`);
+      }
+      if (failed.length > 0) {
+        this.log("   \u274C Failed files:");
+        failed.forEach(({ path: filePath, error }) => {
+          this.log(`      ${path3.basename(filePath)}: ${error}`);
+        });
+      }
+    }
     return {
       successful,
       failed,
