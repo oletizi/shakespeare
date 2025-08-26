@@ -9,5 +9,14 @@
   ],
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/src/$1"
+  },
+  "extensionsToTreatAsEsm": [".ts"],
+  "globals": {
+    "ts-jest": {
+      "tsconfig": {
+        "module": "ES2022",
+        "target": "ES2022"
+      }
+    }
   }
 }

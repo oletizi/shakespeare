@@ -5,12 +5,9 @@ import { ContentDatabaseHandler } from '@/utils/database';
 import { AIScorer } from '@/utils/ai';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const projectRoot = path.join(__dirname, '../..');
+// Use process.cwd() as project root for tests
+const projectRoot = process.cwd();
 
 describe('Shakespeare Smoke Tests with Real AI', () => {
   const testDir = path.join(projectRoot, 'test-output/smoke');
@@ -170,15 +167,15 @@ Generics are a powerful feature that makes TypeScript code more flexible and reu
     );
 
     // Initialize Shakespeare with real AI components
-    const ai = new GooseAI();
+    const gooseAI = new GooseAI();
     const scanner = new ContentScanner(contentDir);
     const database = new ContentDatabaseHandler(dbPath);
-    const scorer = new AIScorer({ ai });
+    const scorer = new AIScorer({ ai: gooseAI });
     
     shakespeare = new Shakespeare(contentDir, dbPath, {
-      contentScanner: scanner,
+      scanner,
       database,
-      contentScorer: scorer
+      ai: scorer
     });
   });
 
@@ -273,8 +270,8 @@ Generics are a powerful feature that makes TypeScript code more flexible and reu
       const initialScores = improvedEntry.reviewHistory[0].scores;
       const latestScores = improvedEntry.currentScores;
       
-      const initialAvg = Object.values(initialScores).reduce((a: any, b: any) => a + b, 0) / 5;
-      const latestAvg = Object.values(latestScores).reduce((a: any, b: any) => a + b, 0) / 5;
+      const initialAvg = Object.values(initialScores as Record<string, number>).reduce((a, b) => a + b, 0) / 5;
+      const latestAvg = Object.values(latestScores as Record<string, number>).reduce((a, b) => a + b, 0) / 5;
       
       console.log('Score improvement:', initialAvg.toFixed(1), '→', latestAvg.toFixed(1));
       expect(latestAvg).toBeGreaterThan(initialAvg);
@@ -295,7 +292,7 @@ Generics are a powerful feature that makes TypeScript code more flexible and reu
         expect(analysis).toBeDefined();
         
         // Check that we have real analysis data
-        const avgScore = Object.values(entryData.currentScores as any).reduce((a: number, b: number) => a + b, 0) / 5;
+        const avgScore = Object.values(entryData.currentScores as Record<string, number>).reduce((a, b) => a + b, 0) / 5;
         console.log(`  Average Score: ${avgScore.toFixed(1)}/10`);
         console.log(`  Status: ${entryData.status}`);
         
