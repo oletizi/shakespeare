@@ -197,19 +197,62 @@ var DEFAULT_TARGET_SCORES = {
 
 // src/utils/goose.ts
 import { spawn } from "child_process";
+var MODEL_COSTS = {
+  // OpenAI pricing (per 1M tokens)
+  "openai/gpt-4o-mini": { input: 15e-5, output: 6e-4 },
+  "openai/gpt-4o": { input: 5e-3, output: 0.015 },
+  // Anthropic pricing (per 1M tokens)  
+  "anthropic/claude-3-5-haiku": { input: 8e-4, output: 4e-3 },
+  "anthropic/claude-3-5-sonnet": { input: 3e-3, output: 0.015 },
+  // Google pricing (per 1M tokens)
+  "google/gemini-1.5-flash": { input: 75e-6, output: 3e-4 },
+  "google/gemini-1.5-pro": { input: 125e-5, output: 5e-3 },
+  // Groq pricing (per 1M tokens) - very fast inference
+  "groq/llama-3.1-70b": { input: 59e-5, output: 79e-5 },
+  "groq/llama-3.1-8b": { input: 5e-5, output: 8e-5 },
+  // DeepInfra pricing (per 1M tokens) - cost effective
+  "deepinfra/llama-3.1-70b": { input: 52e-5, output: 75e-5 },
+  "deepinfra/deepseek-chat": { input: 14e-5, output: 28e-5 }
+};
+var DEFAULT_MODELS_BY_TASK = {
+  // Light tasks - use cheapest models
+  scoring: { provider: "google", model: "gemini-1.5-flash" },
+  analysis: { provider: "groq", model: "llama-3.1-8b" },
+  // Medium tasks - balance cost and quality
+  improvement: { provider: "anthropic", model: "claude-3-5-haiku" },
+  // Heavy tasks - use best models
+  generation: { provider: "anthropic", model: "claude-3-5-sonnet" }
+};
 var GooseAI = class {
   gooseCommand;
   cwd;
-  constructor(cwd = process.cwd()) {
+  defaultOptions;
+  constructor(cwd = process.cwd(), defaultOptions = {}) {
     this.gooseCommand = "goose";
     this.cwd = cwd;
+    this.defaultOptions = defaultOptions;
   }
   /**
-   * Send a prompt to Goose and get the response using headless mode
+   * Send a prompt to Goose and get the response using headless mode (backward compatibility)
    */
   async prompt(prompt) {
+    const response = await this.promptWithOptions(prompt);
+    return response.content;
+  }
+  /**
+   * Enhanced prompt method with model selection and cost tracking
+   */
+  async promptWithOptions(prompt, options) {
+    const startTime = Date.now();
+    const finalOptions = { ...this.defaultOptions, ...options };
+    const args = ["run", "--no-session", "--quiet", "--text", prompt];
+    if (finalOptions.provider) {
+      args.splice(-1, 0, "--provider", finalOptions.provider);
+    }
+    if (finalOptions.model) {
+      args.splice(-1, 0, "--model", finalOptions.model);
+    }
     return new Promise((resolve, reject) => {
-      const args = ["run", "--no-session", "--quiet", "--text", prompt];
       const goose = spawn(this.gooseCommand, args, {
         cwd: this.cwd,
         stdio: ["pipe", "pipe", "pipe"]
@@ -226,10 +269,69 @@ var GooseAI = class {
         if (code !== 0) {
           reject(new Error(`Goose failed with code ${code}: ${error}`));
         } else {
-          resolve(output.trim());
+          const content = output.trim();
+          const costInfo = this.calculateCostInfo(
+            prompt,
+            content,
+            finalOptions,
+            startTime
+          );
+          resolve({
+            content,
+            costInfo
+          });
         }
       });
     });
+  }
+  /**
+   * Estimate cost before making a request
+   */
+  async estimateCost(prompt, options) {
+    const finalOptions = { ...this.defaultOptions, ...options };
+    const inputTokens = this.estimateTokens(prompt);
+    const outputTokens = Math.min(inputTokens * 2, 4e3);
+    return this.calculateCostFromTokens(inputTokens, outputTokens, finalOptions);
+  }
+  /**
+   * Calculate cost information for a completed operation
+   */
+  calculateCostInfo(prompt, response, options, startTime) {
+    const inputTokens = this.estimateTokens(prompt);
+    const outputTokens = this.estimateTokens(response);
+    const totalCost = this.calculateCostFromTokens(inputTokens, outputTokens, options);
+    return {
+      provider: options.provider || "default",
+      model: options.model || "default",
+      inputTokens,
+      outputTokens,
+      totalCost,
+      timestamp: new Date(startTime).toISOString()
+    };
+  }
+  /**
+   * Calculate cost from token counts and model options
+   */
+  calculateCostFromTokens(inputTokens, outputTokens, options) {
+    const modelKey = `${options.provider || "openai"}/${options.model || "gpt-4o-mini"}`;
+    const pricing = MODEL_COSTS[modelKey];
+    if (!pricing) {
+      const defaultPricing = MODEL_COSTS["openai/gpt-4o-mini"];
+      return (inputTokens * defaultPricing.input + outputTokens * defaultPricing.output) / 1e6;
+    }
+    return (inputTokens * pricing.input + outputTokens * pricing.output) / 1e6;
+  }
+  /**
+   * Estimate token count for text (rough approximation)
+   */
+  estimateTokens(text) {
+    return Math.ceil(text.length / 4);
+  }
+  /**
+   * Get optimal model for a specific task type
+   */
+  getOptimalModelForTask(taskType) {
+    return DEFAULT_MODELS_BY_TASK[taskType];
   }
 };
 
@@ -428,15 +530,168 @@ var AIScorer = class {
    * Generate improved content based on analysis
    */
   async improveContent(content, analysis) {
+    const response = await this.improveContentWithCosts(content, analysis);
+    return response.content;
+  }
+  /**
+   * Enhanced scoring with cost tracking and model selection
+   */
+  async scoreContentWithCosts(content, strategies) {
+    const analysis = {
+      scores: {},
+      analysis: {}
+    };
+    const costBreakdown = {};
+    let totalCost = 0;
+    const defaultStrategies = strategies || [
+      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
+      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+    ];
+    for (const strategy of defaultStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
+      const prompt = promptTemplate.replace("{content}", content);
+      try {
+        const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
+        analysis.scores[strategy.dimension] = result.response.score;
+        analysis.analysis[strategy.dimension] = {
+          reasoning: result.response.reasoning,
+          suggestions: result.response.suggestions || []
+        };
+        costBreakdown[strategy.dimension] = result.costInfo;
+        totalCost += result.costInfo.totalCost;
+      } catch (error) {
+        console.error(`Error scoring ${strategy.dimension}:`, error);
+        analysis.scores[strategy.dimension] = 5;
+        analysis.analysis[strategy.dimension] = {
+          reasoning: "Error during scoring process",
+          suggestions: ["Retry scoring"]
+        };
+      }
+    }
+    return {
+      analysis,
+      totalCost,
+      costBreakdown
+    };
+  }
+  /**
+   * Enhanced content improvement with cost tracking
+   */
+  async improveContentWithCosts(content, analysis, options) {
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    const finalOptions = options || { provider: "anthropic", model: "claude-3-5-haiku" };
     try {
-      const response = await this.ai.prompt(prompt);
-      const sections = response.split("\n\n");
-      return sections[0] || content;
+      if ("promptWithOptions" in this.ai && typeof this.ai.promptWithOptions === "function") {
+        const response = await this.ai.promptWithOptions(prompt, finalOptions);
+        const sections = response.content.split("\n\n");
+        return {
+          content: sections[0] || content,
+          costInfo: response.costInfo
+        };
+      } else {
+        const responseText = await this.ai.prompt(prompt);
+        const sections = responseText.split("\n\n");
+        return {
+          content: sections[0] || content,
+          costInfo: {
+            provider: finalOptions.provider || "unknown",
+            model: finalOptions.model || "unknown",
+            inputTokens: Math.ceil(prompt.length / 4),
+            outputTokens: Math.ceil(responseText.length / 4),
+            totalCost: 0,
+            // Cannot calculate without enhanced AI
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        };
+      }
     } catch (error) {
       console.error("Error improving content:", error);
-      return content;
+      return {
+        content,
+        costInfo: {
+          provider: finalOptions.provider || "unknown",
+          model: finalOptions.model || "unknown",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      };
+    }
+  }
+  /**
+   * Batch scoring for cost optimization
+   */
+  async scoreContentBatch(contentList, strategies) {
+    const results = [];
+    for (const content of contentList) {
+      const result = await this.scoreContentWithCosts(content, strategies);
+      results.push(result);
+    }
+    return results;
+  }
+  /**
+   * Estimate cost for scoring operation
+   */
+  async estimateScoringCost(content, strategies) {
+    if (!("estimateCost" in this.ai) || typeof this.ai.estimateCost !== "function") {
+      return 0;
+    }
+    const defaultStrategies = strategies || [
+      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
+      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+    ];
+    let totalEstimatedCost = 0;
+    for (const strategy of defaultStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
+      const prompt = promptTemplate.replace("{content}", content);
+      const cost = await this.ai.estimateCost(prompt, strategy.preferredModel);
+      totalEstimatedCost += cost;
+    }
+    return totalEstimatedCost;
+  }
+  /**
+   * Estimate cost for improvement operation
+   */
+  async estimateImprovementCost(content, analysis, options) {
+    if (!("estimateCost" in this.ai) || typeof this.ai.estimateCost !== "function") {
+      return 0;
+    }
+    const analysisStr = JSON.stringify(analysis, null, 2);
+    const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    const finalOptions = options || { provider: "anthropic", model: "claude-3-5-haiku" };
+    return await this.ai.estimateCost(prompt, finalOptions);
+  }
+  /**
+   * Score a specific dimension with cost tracking
+   */
+  async scoreDimensionWithCost(prompt, modelOptions) {
+    if ("promptWithOptions" in this.ai && typeof this.ai.promptWithOptions === "function") {
+      const response = await this.ai.promptWithOptions(prompt, modelOptions);
+      return {
+        response: parseGooseResponse(response.content),
+        costInfo: response.costInfo
+      };
+    } else {
+      const responseText = await this.ai.prompt(prompt);
+      return {
+        response: parseGooseResponse(responseText),
+        costInfo: {
+          provider: modelOptions?.provider || "unknown",
+          model: modelOptions?.model || "unknown",
+          inputTokens: Math.ceil(prompt.length / 4),
+          outputTokens: Math.ceil(responseText.length / 4),
+          totalCost: 0,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      };
     }
   }
 };

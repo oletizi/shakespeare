@@ -1,6 +1,6 @@
 import { GooseAI } from '@/utils/goose';
 import { QualityDimensions } from '@/types/content';
-import { IAI, IContentScorer } from '@/types/interfaces';
+import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo } from '@/types/interfaces';
 
 export interface AIScoreResponse {
   score: number;
@@ -196,7 +196,7 @@ export interface AIScorerOptions {
 }
 
 /**
- * AI scoring system implementation
+ * AI scoring system implementation with cost optimization
  */
 export class AIScorer implements IContentScorer {
   private ai: IAI;
@@ -251,20 +251,208 @@ export class AIScorer implements IContentScorer {
    * Generate improved content based on analysis
    */
   async improveContent(content: string, analysis: AIContentAnalysis): Promise<string> {
+    const response = await this.improveContentWithCosts(content, analysis);
+    return response.content;
+  }
+
+  /**
+   * Enhanced scoring with cost tracking and model selection
+   */
+  async scoreContentWithCosts(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis> {
+    const analysis: Partial<AIContentAnalysis> = {
+      scores: {} as QualityDimensions,
+      analysis: {} as AIContentAnalysis['analysis']
+    };
+    
+    const costBreakdown: Record<string, AICostInfo> = {};
+    let totalCost = 0;
+
+    // Create default strategies if none provided - optimized for cost
+    const defaultStrategies: ScoringStrategy[] = strategies || [
+      { dimension: 'readability', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
+      { dimension: 'seoScore', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
+      { dimension: 'technicalAccuracy', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } },
+      { dimension: 'engagement', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
+      { dimension: 'contentDepth', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } }
+    ];
+
+    // Score each dimension with cost tracking
+    for (const strategy of defaultStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
+      const prompt = promptTemplate.replace('{content}', content);
+      
+      try {
+        const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
+        
+        // Update scores and analysis
+        (analysis.scores as any)[strategy.dimension] = result.response.score;
+        (analysis.analysis as any)[strategy.dimension] = {
+          reasoning: result.response.reasoning,
+          suggestions: result.response.suggestions || []
+        };
+        
+        // Track costs
+        costBreakdown[strategy.dimension] = result.costInfo;
+        totalCost += result.costInfo.totalCost;
+        
+      } catch (error) {
+        console.error(`Error scoring ${strategy.dimension}:`, error);
+        // Use default values on error
+        (analysis.scores as any)[strategy.dimension] = 5.0;
+        (analysis.analysis as any)[strategy.dimension] = {
+          reasoning: 'Error during scoring process',
+          suggestions: ['Retry scoring']
+        };
+      }
+    }
+
+    return {
+      analysis: analysis as AIContentAnalysis,
+      totalCost,
+      costBreakdown
+    };
+  }
+
+  /**
+   * Enhanced content improvement with cost tracking
+   */
+  async improveContentWithCosts(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse> {
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT
       .replace('{analysis}', analysisStr)
       .replace('{content}', content);
 
+    // Use cost-optimized model for improvement if no specific option provided
+    const finalOptions = options || { provider: 'anthropic', model: 'claude-3-5-haiku' };
+
     try {
-      const response = await this.ai.prompt(prompt);
-      // Extract the improved content from the response
-      // This might need adjustment based on actual Goose output format
-      const sections = response.split('\n\n');
-      return sections[0] || content; // Return first section or original if parsing fails
+      if ('promptWithOptions' in this.ai && typeof this.ai.promptWithOptions === 'function') {
+        const response = await (this.ai as any).promptWithOptions(prompt, finalOptions);
+        // Extract the improved content from the response
+        const sections = response.content.split('\n\n');
+        return {
+          content: sections[0] || content,
+          costInfo: response.costInfo
+        };
+      } else {
+        // Fallback for IAI implementations without cost tracking
+        const responseText = await this.ai.prompt(prompt);
+        const sections = responseText.split('\n\n');
+        return {
+          content: sections[0] || content,
+          costInfo: {
+            provider: finalOptions.provider || 'unknown',
+            model: finalOptions.model || 'unknown',
+            inputTokens: Math.ceil(prompt.length / 4),
+            outputTokens: Math.ceil(responseText.length / 4),
+            totalCost: 0, // Cannot calculate without enhanced AI
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
     } catch (error) {
       console.error('Error improving content:', error);
-      return content;
+      return {
+        content,
+        costInfo: {
+          provider: finalOptions.provider || 'unknown',
+          model: finalOptions.model || 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+          timestamp: new Date().toISOString()
+        }
+      };
+    }
+  }
+
+  /**
+   * Batch scoring for cost optimization
+   */
+  async scoreContentBatch(contentList: string[], strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis[]> {
+    // For now, process sequentially. In the future, this could be enhanced with actual batch API calls
+    const results: EnhancedAIContentAnalysis[] = [];
+    
+    for (const content of contentList) {
+      const result = await this.scoreContentWithCosts(content, strategies);
+      results.push(result);
+    }
+    
+    return results;
+  }
+
+  /**
+   * Estimate cost for scoring operation
+   */
+  async estimateScoringCost(content: string, strategies?: ScoringStrategy[]): Promise<number> {
+    if (!('estimateCost' in this.ai) || typeof this.ai.estimateCost !== 'function') {
+      return 0; // Cannot estimate without enhanced AI
+    }
+
+    const defaultStrategies: ScoringStrategy[] = strategies || [
+      { dimension: 'readability', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
+      { dimension: 'seoScore', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
+      { dimension: 'technicalAccuracy', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } },
+      { dimension: 'engagement', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
+      { dimension: 'contentDepth', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } }
+    ];
+
+    let totalEstimatedCost = 0;
+    
+    for (const strategy of defaultStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
+      const prompt = promptTemplate.replace('{content}', content);
+      const cost = await (this.ai as any).estimateCost(prompt, strategy.preferredModel);
+      totalEstimatedCost += cost;
+    }
+    
+    return totalEstimatedCost;
+  }
+
+  /**
+   * Estimate cost for improvement operation
+   */
+  async estimateImprovementCost(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<number> {
+    if (!('estimateCost' in this.ai) || typeof this.ai.estimateCost !== 'function') {
+      return 0; // Cannot estimate without enhanced AI
+    }
+
+    const analysisStr = JSON.stringify(analysis, null, 2);
+    const prompt = IMPROVEMENT_PROMPT
+      .replace('{analysis}', analysisStr)
+      .replace('{content}', content);
+
+    const finalOptions = options || { provider: 'anthropic', model: 'claude-3-5-haiku' };
+    return await (this.ai as any).estimateCost(prompt, finalOptions);
+  }
+
+  /**
+   * Score a specific dimension with cost tracking
+   */
+  private async scoreDimensionWithCost(prompt: string, modelOptions?: AIModelOptions): Promise<{
+    response: AIScoreResponse;
+    costInfo: AICostInfo;
+  }> {
+    if ('promptWithOptions' in this.ai && typeof this.ai.promptWithOptions === 'function') {
+      const response = await (this.ai as any).promptWithOptions(prompt, modelOptions);
+      return {
+        response: parseGooseResponse(response.content),
+        costInfo: response.costInfo
+      };
+    } else {
+      // Fallback for basic IAI implementations
+      const responseText = await this.ai.prompt(prompt);
+      return {
+        response: parseGooseResponse(responseText),
+        costInfo: {
+          provider: modelOptions?.provider || 'unknown',
+          model: modelOptions?.model || 'unknown',
+          inputTokens: Math.ceil(prompt.length / 4),
+          outputTokens: Math.ceil(responseText.length / 4),
+          totalCost: 0,
+          timestamp: new Date().toISOString()
+        }
+      };
     }
   }
 }
