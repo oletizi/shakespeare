@@ -1,9 +1,10 @@
 import { spawn } from 'child_process';
+import { IAI } from '@/types/interfaces';
 
 /**
- * Goose AI interaction handler
+ * Goose AI interaction handler using CLI
  */
-export class GooseAI {
+export class GooseAI implements IAI {
   private gooseCommand: string;
   private cwd: string;
 

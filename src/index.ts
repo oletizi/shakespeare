@@ -3,20 +3,34 @@ import { ContentDatabaseHandler } from '@/utils/database';
 import { DEFAULT_TARGET_SCORES } from '@/utils/constants';
 import { ContentEntry, QualityDimensions } from '@/types/content';
 import { AIScorer, AIContentAnalysis } from '@/utils/ai';
+import { IContentScanner, IContentDatabase, IContentScorer } from '@/types/interfaces';
 import path from 'path';
 import fs from 'fs/promises';
 
 export * from '@/types/content';
 
-export class Shakespeare {
-  private scanner: ContentScanner;
-  private db: ContentDatabaseHandler;
-  private ai: AIScorer;
+/**
+ * Options for Shakespeare constructor
+ */
+export interface ShakespeareOptions {
+  scanner?: IContentScanner;
+  database?: IContentDatabase;
+  ai?: IContentScorer;
+}
 
-  constructor(contentDir: string, dbPath: string) {
-    this.scanner = new ContentScanner(contentDir);
-    this.db = new ContentDatabaseHandler(dbPath);
-    this.ai = new AIScorer();
+export class Shakespeare {
+  private scanner: IContentScanner;
+  private db: IContentDatabase;
+  private ai: IContentScorer;
+  private contentDir: string;
+  private dbPath: string;
+
+  constructor(contentDir: string, dbPath: string, options: ShakespeareOptions = {}) {
+    this.contentDir = contentDir;
+    this.dbPath = dbPath;
+    this.scanner = options.scanner ?? new ContentScanner(contentDir);
+    this.db = options.database ?? new ContentDatabaseHandler(dbPath);
+    this.ai = options.ai ?? new AIScorer();
 
     // Ensure database directory exists
     const dbDir = path.dirname(dbPath);
@@ -57,7 +71,7 @@ export class Shakespeare {
           }]
         };
 
-        await this.db.updateEntry(file, () => newEntry);
+        await this.db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
       }
     }
   }
@@ -112,21 +126,26 @@ export class Shakespeare {
     await fs.writeFile(path, improvedContent, 'utf-8');
     
     // Update database entry
-    await this.db.updateEntry(path, (entry: ContentEntry) => ({
-      ...entry,
-      currentScores: newAnalysis.scores,
-      lastReviewDate: new Date().toISOString(),
-      improvementIterations: entry.improvementIterations + 1,
-      status: this.determineStatus(newAnalysis.scores),
-      reviewHistory: [
-        ...entry.reviewHistory,
-        {
-          date: new Date().toISOString(),
-          scores: newAnalysis.scores,
-          improvements: Object.values(analysis.analysis).flatMap(a => a.suggestions)
-        }
-      ]
-    }));
+    await this.db.updateEntry(path, (entry: ContentEntry | undefined) => {
+      if (!entry) {
+        throw new Error(`Entry not found for path: ${path}`);
+      }
+      return {
+        ...entry,
+        currentScores: newAnalysis.scores,
+        lastReviewDate: new Date().toISOString(),
+        improvementIterations: entry.improvementIterations + 1,
+        status: this.determineStatus(newAnalysis.scores),
+        reviewHistory: [
+          ...entry.reviewHistory,
+          {
+            date: new Date().toISOString(),
+            scores: newAnalysis.scores,
+            improvements: Object.values(analysis.analysis).flatMap(a => a.suggestions)
+          }
+        ]
+      };
+    });
   }
 
   /**
@@ -140,4 +159,11 @@ export class Shakespeare {
     if (avgScore >= 7.0) return 'needs_improvement';
     return 'needs_review';
   }
+}
+
+/**
+ * Factory function for creating Shakespeare instances
+ */
+export function createShakespeare(contentDir: string, dbPath: string, options?: ShakespeareOptions): Shakespeare {
+  return new Shakespeare(contentDir, dbPath, options);
 }

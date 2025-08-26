@@ -1,5 +1,6 @@
 import { GooseAI } from '@/utils/goose';
 import { QualityDimensions } from '@/types/content';
+import { IAI, IContentScorer } from '@/types/interfaces';
 
 export interface AIScoreResponse {
   score: number;
@@ -188,13 +189,20 @@ function parseGooseResponse(response: string): AIScoreResponse {
 }
 
 /**
+ * Options for AIScorer constructor
+ */
+export interface AIScorerOptions {
+  ai?: IAI;
+}
+
+/**
  * AI scoring system implementation
  */
-export class AIScorer {
-  private goose: GooseAI;
+export class AIScorer implements IContentScorer {
+  private ai: IAI;
 
-  constructor() {
-    this.goose = new GooseAI();
+  constructor(options: AIScorerOptions = {}) {
+    this.ai = options.ai ?? new GooseAI();
   }
 
   /**
@@ -227,7 +235,7 @@ export class AIScorer {
    */
   private async scoreDimension(content: string, prompt: string): Promise<AIScoreResponse> {
     try {
-      const response = await this.goose.prompt(prompt);
+      const response = await this.ai.prompt(prompt);
       return parseGooseResponse(response);
     } catch (error) {
       console.error('Error scoring content:', error);
@@ -249,7 +257,7 @@ export class AIScorer {
       .replace('{content}', content);
 
     try {
-      const response = await this.goose.prompt(prompt);
+      const response = await this.ai.prompt(prompt);
       // Extract the improved content from the response
       // This might need adjustment based on actual Goose output format
       const sections = response.split('\n\n');
@@ -259,4 +267,11 @@ export class AIScorer {
       return content;
     }
   }
+}
+
+/**
+ * Factory function for creating AIScorer instances
+ */
+export function createAIScorer(options?: AIScorerOptions): AIScorer {
+  return new AIScorer(options);
 }

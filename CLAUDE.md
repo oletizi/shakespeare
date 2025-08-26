@@ -236,3 +236,5 @@ An AI agent has successfully completed work when:
 - Use `@/` imports for all internal modules
 - Prioritize testability over convenience
 - Throw errors with context instead of using fallbacks
+- don't mock/stub modules.
+- don't mock/stub modules; use dependency injection and a mock interface instead.

@@ -1,10 +1,11 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { IContentScanner } from '@/types/interfaces';
 
 /**
  * Content scanner to find markdown files
  */
-export class ContentScanner {
+export class ContentScanner implements IContentScanner {
   private contentDir: string;
 
   constructor(contentDir: string) {

@@ -1,11 +1,12 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { ContentDatabase } from '../types/content';
+import { ContentDatabase, ContentEntry } from '@/types/content';
+import { IContentDatabase } from '@/types/interfaces';
 
 /**
  * Database handler for content tracking
  */
-export class ContentDatabaseHandler {
+export class ContentDatabaseHandler implements IContentDatabase {
   private dbPath: string;
   private data: ContentDatabase = {
     lastUpdated: new Date().toISOString(),
@@ -52,7 +53,7 @@ export class ContentDatabaseHandler {
   /**
    * Update an entry in the database
    */
-  async updateEntry(entryPath: string, updateFn: (entry: any) => any): Promise<void> {
+  async updateEntry(entryPath: string, updateFn: (entry: ContentEntry | undefined) => ContentEntry): Promise<void> {
     this.data.entries[entryPath] = updateFn(this.data.entries[entryPath]);
     await this.save();
   }
