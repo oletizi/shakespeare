@@ -232,6 +232,13 @@ var ShakespeareLogger = class {
     this.logger.level = enabled ? "debug" : "info";
   }
   /**
+   * Set explicit log level
+   */
+  setLevel(level) {
+    this.logger.level = level;
+    this.verboseEnabled = level === "debug";
+  }
+  /**
    * Check if verbose mode is enabled
    */
   isVerbose() {
@@ -1459,6 +1466,9 @@ var Shakespeare = class _Shakespeare {
     };
     if (config.verbose) {
       shakespeare.setVerbose(true);
+    }
+    if (config.logLevel) {
+      shakespeare.logger.setLevel(config.logLevel);
     }
     return shakespeare;
   }

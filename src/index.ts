@@ -45,6 +45,8 @@ export interface ShakespeareConfig {
   modelOptions?: AIModelOptions;
   /** Enable verbose progress reporting */
   verbose?: boolean;
+  /** Log level for structured logging */
+  logLevel?: 'error' | 'warn' | 'info' | 'debug';
   /** Project root directory */
   rootDir?: string;
   /** Database path override */
@@ -76,7 +78,7 @@ export class Shakespeare {
   private ai: IContentScorer;
   private rootDir: string;
   private dbPath: string;
-  private logger: ShakespeareLogger;
+  public logger: ShakespeareLogger;
   private verbose: boolean = false;
   
   /** Configuration used to create this instance */
@@ -826,6 +828,10 @@ export class Shakespeare {
     
     if (config.verbose) {
       shakespeare.setVerbose(true);
+    }
+    
+    if (config.logLevel) {
+      shakespeare.logger.setLevel(config.logLevel);
     }
     
     return shakespeare;

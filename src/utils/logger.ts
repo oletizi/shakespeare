@@ -38,6 +38,15 @@ export class ShakespeareLogger {
   }
 
   /**
+   * Set explicit log level
+   */
+  setLevel(level: 'error' | 'warn' | 'info' | 'debug'): void {
+    this.logger.level = level;
+    // If debug level is set, enable verbose-style output
+    this.verboseEnabled = level === 'debug';
+  }
+
+  /**
    * Check if verbose mode is enabled
    */
   isVerbose(): boolean {

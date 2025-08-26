@@ -11,6 +11,10 @@ export declare class ShakespeareLogger {
      */
     setVerbose(enabled: boolean): void;
     /**
+     * Set explicit log level
+     */
+    setLevel(level: 'error' | 'warn' | 'info' | 'debug'): void;
+    /**
      * Check if verbose mode is enabled
      */
     isVerbose(): boolean;

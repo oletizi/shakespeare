@@ -1,5 +1,6 @@
 import { ContentEntry, ContentStatus } from '@/types/content';
 import { AIScorerOptions } from '@/utils/ai';
+import { ShakespeareLogger } from '@/utils/logger';
 import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
@@ -35,6 +36,8 @@ export interface ShakespeareConfig {
     modelOptions?: AIModelOptions;
     /** Enable verbose progress reporting */
     verbose?: boolean;
+    /** Log level for structured logging */
+    logLevel?: 'error' | 'warn' | 'info' | 'debug';
     /** Project root directory */
     rootDir?: string;
     /** Database path override */
@@ -67,7 +70,7 @@ export declare class Shakespeare {
     private ai;
     private rootDir;
     private dbPath;
-    private logger;
+    logger: ShakespeareLogger;
     private verbose;
     /** Configuration used to create this instance */
     readonly config: ShakespeareConfig;
