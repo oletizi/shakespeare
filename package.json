@@ -10,6 +10,8 @@
     "watch": "tsc -w",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:integration": "jest test/integration",
+    "test:smoke": "jest test/smoke --testTimeout=90000",
     "update-content-index": "node dist/scripts/updateContentIndex.js",
     "improve-content": "node dist/scripts/improveContent.js"
   },

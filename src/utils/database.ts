@@ -3,6 +3,8 @@ import path from 'path';
 import { ContentDatabase, ContentEntry } from '@/types/content';
 import { IContentDatabase } from '@/types/interfaces';
 
+export { ContentDatabase as ContentDatabaseType } from '@/types/content';
+
 /**
  * Database handler for content tracking
  */
