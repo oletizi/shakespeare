@@ -1,7 +1,7 @@
 import { ContentScanner } from '@/utils/scanner';
 import { ContentDatabaseHandler } from '@/utils/database';
 import { DEFAULT_TARGET_SCORES } from '@/utils/constants';
-import { ContentEntry, QualityDimensions } from '@/types/content';
+import { ContentEntry, QualityDimensions, ContentStatus } from '@/types/content';
 import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
 import { GooseAI } from '@/utils/goose';
 import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
@@ -71,19 +71,43 @@ export interface WorkflowResult {
 
 export class Shakespeare {
   private scanner: IContentScanner;
-  private db: IContentDatabase;
+  private _db: IContentDatabase;
   private ai: IContentScorer;
   private rootDir: string;
   private dbPath: string;
   private verbose: boolean = false;
+  
+  /** Configuration used to create this instance */
+  public readonly config: ShakespeareConfig;
+  
+  /** Model options being used for AI operations */
+  public readonly modelOptions?: AIModelOptions;
+
+  /**
+   * Get database instance for testing purposes
+   * @internal
+   */
+  get db(): IContentDatabase {
+    return this._db;
+  }
 
   constructor(rootDir: string = process.cwd(), dbPath?: string, options: ShakespeareOptions = {}) {
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path.join(rootDir, '.shakespeare', 'content-db.json');
     
+    // Store configuration for public access
+    this.config = {
+      rootDir,
+      dbPath,
+      contentCollection: options.contentCollection,
+      verbose: this.verbose,
+      modelOptions: options.defaultModelOptions
+    };
+    this.modelOptions = options.defaultModelOptions;
+    
     // Create scanner with content collection configuration
     this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
-    this.db = options.database ?? new ContentDatabaseHandler(this.dbPath);
+    this._db = options.database ?? new ContentDatabaseHandler(this.dbPath);
     
     // Create AI scorer with proper configuration for cost optimization
     if (options.ai) {
@@ -112,7 +136,7 @@ export class Shakespeare {
    * Initialize the system
    */
   async initialize(): Promise<void> {
-    await this.db.load();
+    await this._db.load();
   }
 
   /**
@@ -121,7 +145,7 @@ export class Shakespeare {
    */
   async discoverContent(): Promise<string[]> {
     const files = await this.scanner.scanContent();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const newFiles: string[] = [];
 
     for (const file of files) {
@@ -143,13 +167,13 @@ export class Shakespeare {
           reviewHistory: []
         };
 
-        await this.db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
+        await this._db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
         newFiles.push(file);
       }
     }
 
     // Update database timestamp
-    await this.db.save();
+    await this._db.save();
     
     return newFiles;
   }
@@ -159,7 +183,7 @@ export class Shakespeare {
    */
   async updateContentIndex(): Promise<void> {
     const files = await this.scanner.scanContent();
-    const database = this.db.getData();
+    const database = this._db.getData();
 
     for (const file of files) {
       if (!database.entries[file]) {
@@ -181,7 +205,7 @@ export class Shakespeare {
           }]
         };
 
-        await this.db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
+        await this._db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
       }
     }
   }
@@ -190,24 +214,45 @@ export class Shakespeare {
    * Get the current database data
    */
   getDatabaseData() {
-    return this.db.getData();
+    return this._db.getData();
   }
 
   /**
    * Get content that needs review (unreviewed/discovered content)
+   * @deprecated Use getContentNeedingReviewDetails() for full content objects
    */
   getContentNeedingReview(): string[] {
-    const database = this.db.getData();
+    const database = this._db.getData();
     return Object.entries(database.entries)
       .filter(([_, entry]) => entry.status === 'needs_review')
       .map(([path, _]) => path);
   }
 
   /**
+   * Get detailed content objects that need review
+   */
+  getContentNeedingReviewDetails(): ContentEntry[] {
+    const database = this._db.getData();
+    return Object.entries(database.entries)
+      .filter(([_, entry]) => entry.status === 'needs_review')
+      .map(([_, entry]) => entry);
+  }
+
+  /**
+   * Get content entries by status
+   */
+  getContentByStatus(status: ContentStatus): ContentEntry[] {
+    const database = this._db.getData();
+    return Object.entries(database.entries)
+      .filter(([_, entry]) => entry.status === status)
+      .map(([_, entry]) => entry);
+  }
+
+  /**
    * Review/score a specific content file
    */
   async reviewContent(path: string): Promise<void> {
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entry = database.entries[path];
     
     if (!entry) {
@@ -235,15 +280,15 @@ export class Shakespeare {
       }]
     };
 
-    await this.db.updateEntry(path, () => updatedEntry);
-    await this.db.save();
+    await this._db.updateEntry(path, () => updatedEntry);
+    await this._db.save();
   }
 
   /**
    * Get the entry with the lowest average score (excludes unreviewed content)
    */
   getWorstScoringContent(): string | null {
-    const database = this.db.getData();
+    const database = this._db.getData();
     let worstScore = Infinity;
     let worstPath: string | null = null;
 
@@ -270,7 +315,7 @@ export class Shakespeare {
    * Improve content at the specified path
    */
   async improveContent(path: string): Promise<void> {
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entry = database.entries[path];
 
     if (!entry) {
@@ -330,7 +375,7 @@ export class Shakespeare {
     }
     
     // Update database entry
-    await this.db.updateEntry(path, (entry: ContentEntry | undefined) => {
+    await this._db.updateEntry(path, (entry: ContentEntry | undefined) => {
       if (!entry) {
         throw new Error(`Entry not found for path: ${path}`);
       }
@@ -369,6 +414,22 @@ export class Shakespeare {
    */
   setVerbose(verbose: boolean): void {
     this.verbose = verbose;
+    // Update the public config to reflect the change
+    (this.config as any).verbose = verbose;
+  }
+
+  /**
+   * Get current verbose setting
+   */
+  isVerbose(): boolean {
+    return this.verbose;
+  }
+
+  /**
+   * Get current model options being used
+   */
+  getModelOptions(): AIModelOptions | undefined {
+    return this.modelOptions;
   }
 
   /**
@@ -433,7 +494,7 @@ export class Shakespeare {
     this.log('📊 Starting content review...');
     
     await this.initialize();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const contentNeedingReview = Object.entries(database.entries)
       .filter(([, entry]) => entry.status === 'needs_review')
       .map(([path]) => path);
@@ -561,7 +622,7 @@ export class Shakespeare {
     worstScoring: string | null;
   }> {
     await this.initialize();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entries = Object.entries(database.entries);
 
     const needsReview = entries.filter(([, entry]) => entry.status === 'needs_review').length;
@@ -608,6 +669,14 @@ export class Shakespeare {
     };
     
     const shakespeare = new Shakespeare(rootDir, dbPath, options);
+    
+    // Store the full configuration that was used to create this instance
+    (shakespeare.config as any) = {
+      ...shakespeare.config,
+      ...config,
+      contentCollection,
+      modelOptions: defaultModelOptions
+    };
     
     if (config.verbose) {
       shakespeare.setVerbose(true);
@@ -712,10 +781,10 @@ export class Shakespeare {
    * Save workflow configuration to the content database
    */
   async saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void> {
-    await this.db.load();
-    const currentData = this.db.getData();
+    await this._db.load();
+    const currentData = this._db.getData();
     currentData.config = workflowConfig;
-    await this.db.save();
+    await this._db.save();
     this.log('💾 Workflow configuration saved to content database');
   }
 
@@ -723,8 +792,8 @@ export class Shakespeare {
    * Get current workflow configuration from database
    */
   async getWorkflowConfig(): Promise<WorkflowConfig | undefined> {
-    await this.db.load();
-    return this.db.getData().config;
+    await this._db.load();
+    return this._db.getData().config;
   }
 
   /**
