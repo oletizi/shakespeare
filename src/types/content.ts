@@ -47,4 +47,6 @@ export interface ContentEntry {
 export interface ContentDatabase {
   lastUpdated: string;
   entries: Record<string, ContentEntry>;
+  /** Optional workflow configuration stored in database */
+  config?: import('./interfaces').WorkflowConfig;
 }

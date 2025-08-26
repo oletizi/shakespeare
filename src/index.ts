@@ -4,7 +4,7 @@ import { DEFAULT_TARGET_SCORES } from '@/utils/constants';
 import { ContentEntry, QualityDimensions } from '@/types/content';
 import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
 import { GooseAI } from '@/utils/goose';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -287,7 +287,18 @@ export class Shakespeare {
     let improvedContent: string;
     try {
       console.log(`📝 Attempting to improve content with ${content.length} characters...`);
-      improvedContent = await this.ai.improveContent(content, analysis);
+      
+      // Get workflow-specific model options for improvement
+      const improveOptions = await this.getWorkflowModelOptions('improve');
+      
+      if ('improveContentWithCosts' in this.ai && typeof this.ai.improveContentWithCosts === 'function') {
+        const response = await (this.ai as any).improveContentWithCosts(content, analysis, improveOptions);
+        improvedContent = response.content;
+      } else {
+        // Fallback for basic AI implementations
+        improvedContent = await this.ai.improveContent(content, analysis);
+      }
+      
       console.log(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
       
       // Validate that we actually got improved content
@@ -580,12 +591,12 @@ export class Shakespeare {
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
    */
-  static create(config: ShakespeareConfig = {}): Shakespeare {
+  static async create(config: ShakespeareConfig = {}): Promise<Shakespeare> {
     const rootDir = config.rootDir || process.cwd();
     const dbPath = config.dbPath;
     
     // Auto-detect project type if not specified
-    const detectedType = detectProjectType(rootDir);
+    const detectedType = await detectProjectType(rootDir);
     const contentCollection = config.contentCollection || detectedType;
     
     // Get optimized model options
@@ -606,44 +617,131 @@ export class Shakespeare {
   }
 
   /**
-   * Create Shakespeare from configuration file
+   * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath?: string): Promise<Shakespeare> {
-    const path = require('path');
+    const { join } = await import('path');
+    const { existsSync, readFileSync } = await import('fs');
     const rootDir = process.cwd();
     
-    // Try to find config file
+    // Try to find external config file first
     const possiblePaths = [
       configPath,
-      path.join(rootDir, 'shakespeare.config.js'),
-      path.join(rootDir, 'shakespeare.config.mjs'),
-      path.join(rootDir, 'shakespeare.config.json'),
-      path.join(rootDir, '.shakespeare.json')
+      join(rootDir, 'shakespeare.config.js'),
+      join(rootDir, 'shakespeare.config.mjs'),
+      join(rootDir, 'shakespeare.config.json'),
+      join(rootDir, '.shakespeare.json')
     ].filter(Boolean);
     
     for (const configFile of possiblePaths) {
       try {
-        const fs = require('fs');
-        if (fs.existsSync(configFile!)) {
+        if (existsSync(configFile!)) {
           let config: ShakespeareConfig;
           
           if (configFile!.endsWith('.json')) {
-            config = JSON.parse(fs.readFileSync(configFile!, 'utf-8'));
+            config = JSON.parse(readFileSync(configFile!, 'utf-8'));
           } else {
             // Dynamic import for JS/MJS files
             const configModule = await import(configFile!);
             config = configModule.default || configModule;
           }
           
-          return Shakespeare.create(config);
+          return await Shakespeare.create(config);
         }
       } catch (error) {
         console.warn(`Failed to load config from ${configFile}: ${error}`);
       }
     }
     
+    // Try to load configuration from content database
+    try {
+      const dbPath = join(rootDir, '.shakespeare', 'content-db.json');
+      if (existsSync(dbPath)) {
+        const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
+        if (db.config) {
+          // Convert WorkflowConfig to ShakespeareConfig
+          const shakespeareConfig = await Shakespeare.workflowConfigToShakespeareConfig(db.config, rootDir);
+          return await Shakespeare.create(shakespeareConfig);
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to load config from database: ${error}`);
+    }
+    
     // Fallback to default configuration
-    return Shakespeare.create();
+    return await Shakespeare.create();
+  }
+
+  /**
+   * Convert WorkflowConfig to ShakespeareConfig
+   */
+  private static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig, rootDir: string): Promise<ShakespeareConfig> {
+    const config: ShakespeareConfig = {
+      rootDir,
+      verbose: workflowConfig.verbose
+    };
+
+    // Set content collection if specified
+    if (workflowConfig.contentCollection) {
+      config.contentCollection = workflowConfig.contentCollection;
+    }
+
+    // Configure models - use review model as default since it's most commonly used
+    if (workflowConfig.models?.review) {
+      config.model = workflowConfig.models.review;
+    }
+
+    if (workflowConfig.providers?.review) {
+      config.provider = workflowConfig.providers.review;
+    }
+
+    // If both provider and model are specified, combine them
+    if (config.provider || config.model) {
+      config.modelOptions = {
+        provider: config.provider,
+        model: config.model
+      };
+    }
+
+    return config;
+  }
+
+  // ========== WORKFLOW CONFIGURATION METHODS ==========
+
+  /**
+   * Save workflow configuration to the content database
+   */
+  async saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void> {
+    await this.db.load();
+    const currentData = this.db.getData();
+    currentData.config = workflowConfig;
+    await this.db.save();
+    this.log('💾 Workflow configuration saved to content database');
+  }
+
+  /**
+   * Get current workflow configuration from database
+   */
+  async getWorkflowConfig(): Promise<WorkflowConfig | undefined> {
+    await this.db.load();
+    return this.db.getData().config;
+  }
+
+  /**
+   * Get workflow-specific model options for an operation type
+   */
+  private async getWorkflowModelOptions(workflowType: 'review' | 'improve' | 'generate'): Promise<AIModelOptions | undefined> {
+    const config = await this.getWorkflowConfig();
+    if (!config) return undefined;
+
+    const provider = config.providers?.[workflowType];
+    const model = config.models?.[workflowType];
+
+    if (provider || model) {
+      return { provider, model };
+    }
+
+    return undefined;
   }
 }
 
@@ -657,27 +755,27 @@ export function createShakespeare(rootDir?: string, dbPath?: string, options?: S
 /**
  * Auto-detect project type based on file structure
  */
-function detectProjectType(rootDir: string): keyof typeof CONTENT_COLLECTIONS | 'custom' {
-  const fs = require('fs');
-  const path = require('path');
-  
+async function detectProjectType(rootDir: string): Promise<keyof typeof CONTENT_COLLECTIONS | 'custom'> {
   try {
+    const { existsSync } = await import('fs');
+    const { join } = await import('path');
+    
     // Check for Astro
-    if (fs.existsSync(path.join(rootDir, 'astro.config.mjs')) || 
-        fs.existsSync(path.join(rootDir, 'astro.config.js')) ||
-        fs.existsSync(path.join(rootDir, 'src/content'))) {
+    if (existsSync(join(rootDir, 'astro.config.mjs')) || 
+        existsSync(join(rootDir, 'astro.config.js')) ||
+        existsSync(join(rootDir, 'src/content'))) {
       return 'astro';
     }
     
     // Check for Next.js
-    if (fs.existsSync(path.join(rootDir, 'next.config.js')) || 
-        fs.existsSync(path.join(rootDir, 'next.config.mjs'))) {
+    if (existsSync(join(rootDir, 'next.config.js')) || 
+        existsSync(join(rootDir, 'next.config.mjs'))) {
       return 'nextjs';
     }
     
     // Check for Gatsby
-    if (fs.existsSync(path.join(rootDir, 'gatsby-config.js')) || 
-        fs.existsSync(path.join(rootDir, 'gatsby-config.ts'))) {
+    if (existsSync(join(rootDir, 'gatsby-config.js')) || 
+        existsSync(join(rootDir, 'gatsby-config.ts'))) {
       return 'gatsby';
     }
     

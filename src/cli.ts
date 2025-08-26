@@ -1,0 +1,101 @@
+/**
+ * Shakespeare CLI - Zero-configuration content management commands
+ * Automatically uses workflow configuration from .shakespeare/content-db.json
+ */
+
+import { Shakespeare } from '@/index';
+
+/**
+ * Display CLI help information
+ */
+function showHelp() {
+  console.log(`
+🎭 Shakespeare CLI - AI-powered content management
+
+USAGE
+  npx shakespeare <command>
+
+COMMANDS
+  discover     Discover and index content files
+  review       Review all content that needs analysis
+  improve      Improve worst-scoring content
+  workflow     Run complete workflow (discover → review → improve)
+  help         Show this help message
+
+CONFIGURATION
+  Shakespeare automatically loads configuration from:
+  1. .shakespeare/content-db.json (workflow config)
+  2. shakespeare.config.js/mjs/json
+  3. .shakespeare.json
+
+EXAMPLES
+  npx shakespeare discover    # Find and index all content
+  npx shakespeare review      # AI review of unreviewed content
+  npx shakespeare improve     # Improve lowest-scoring content
+  npx shakespeare workflow    # Complete end-to-end workflow
+
+For more information, visit: https://github.com/oletizi/shakespeare
+  `);
+}
+
+/**
+ * Main CLI function
+ */
+async function main() {
+  const command = process.argv[2];
+
+  if (!command || command === 'help' || command === '--help' || command === '-h') {
+    showHelp();
+    return;
+  }
+
+  try {
+    console.log('🎭 Shakespeare CLI\n');
+    
+    // Load Shakespeare with configuration
+    const shakespeare = await Shakespeare.fromConfig();
+    
+    // Execute command
+    switch (command) {
+      case 'discover':
+        console.log('📂 Running content discovery...');
+        await shakespeare.discoverAndReport();
+        break;
+        
+      case 'review':
+        console.log('📊 Running content review...');
+        await shakespeare.reviewAll();
+        break;
+        
+      case 'improve':
+        console.log('🚀 Running content improvement...');
+        await shakespeare.improveWorst();
+        break;
+        
+      case 'workflow':
+        console.log('🔄 Running complete workflow...');
+        await shakespeare.runFullWorkflow();
+        break;
+        
+      default:
+        console.error(`❌ Unknown command: ${command}`);
+        console.log('Run "npx shakespeare help" for usage information.');
+        process.exit(1);
+    }
+    
+    console.log('\n✅ Command completed successfully!');
+    
+  } catch (error) {
+    console.error(`\n❌ Error: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
+}
+
+// Run CLI if this file is executed directly
+// Note: In ES modules, we can't use require.main, so we check process.argv[1]
+const isMainModule = process.argv[1]?.endsWith('/cli.js') || process.argv[1]?.endsWith('\\cli.js');
+if (isMainModule) {
+  main().catch(console.error);
+}
+
+export { main as runCLI };

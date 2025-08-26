@@ -172,3 +172,66 @@ export interface IContentScorer {
   estimateScoringCost(content: string, strategies?: ScoringStrategy[]): Promise<number>;
   estimateImprovementCost(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<number>;
 }
+
+/**
+ * Workflow-specific configuration stored in content-db.json
+ */
+export interface WorkflowConfig {
+  /** Content collection type (auto-detected if not specified) */
+  contentCollection?: keyof typeof CONTENT_COLLECTIONS | 'custom';
+  
+  /** Enable verbose logging */
+  verbose?: boolean;
+  
+  /** Model configuration for different workflow types */
+  models?: {
+    /** Model for content review/scoring operations */
+    review?: string;
+    /** Model for content improvement operations */
+    improve?: string;
+    /** Model for content generation operations */
+    generate?: string;
+  };
+  
+  /** Provider configuration for different workflow types */
+  providers?: {
+    /** Provider for content review/scoring operations */
+    review?: string;
+    /** Provider for content improvement operations */
+    improve?: string;
+    /** Provider for content generation operations */
+    generate?: string;
+  };
+  
+  /** Workflow-specific settings */
+  workflows?: {
+    discover?: {
+      /** Whether to reset existing entries when discovering */
+      resetExisting?: boolean;
+      /** Whether to automatically initialize database */
+      autoInit?: boolean;
+    };
+    review?: {
+      /** Batch size for review operations */
+      batchSize?: number;
+      /** Whether to estimate costs before running */
+      estimateCosts?: boolean;
+      /** Whether to retry failed operations */
+      retryFailures?: boolean;
+    };
+    improve?: {
+      /** Maximum number of items to improve */
+      maxCount?: number;
+      /** Whether to require review before improvement */
+      requireReviewFirst?: boolean;
+      /** Minimum score threshold to trigger improvement */
+      targetThreshold?: number;
+    };
+    complete?: {
+      /** Number of items to improve in complete workflow */
+      improveCount?: number;
+      /** Whether to run discovery as part of complete workflow */
+      runDiscovery?: boolean;
+    };
+  };
+}

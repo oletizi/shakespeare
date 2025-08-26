@@ -322,8 +322,9 @@ export class AIScorer implements IContentScorer {
       .replace('{analysis}', analysisStr)
       .replace('{content}', content);
 
-    // Use cost-optimized model for improvement if no specific option provided
-    const finalOptions = options || { provider: 'anthropic', model: 'claude-3-5-haiku' };
+    // Use provided options or let GooseAI use its configured defaults
+    // Don't force any provider/model defaults here - respect user configuration
+    const finalOptions = options;
 
     try {
       if ('promptWithOptions' in this.ai && typeof this.ai.promptWithOptions === 'function') {
@@ -341,8 +342,8 @@ export class AIScorer implements IContentScorer {
         return {
           content: sections[0] || content,
           costInfo: {
-            provider: finalOptions.provider || 'unknown',
-            model: finalOptions.model || 'unknown',
+            provider: finalOptions?.provider || 'unknown',
+            model: finalOptions?.model || 'unknown',
             inputTokens: Math.ceil(prompt.length / 4),
             outputTokens: Math.ceil(responseText.length / 4),
             totalCost: 0, // Cannot calculate without enhanced AI
@@ -355,8 +356,8 @@ export class AIScorer implements IContentScorer {
       return {
         content,
         costInfo: {
-          provider: finalOptions.provider || 'unknown',
-          model: finalOptions.model || 'unknown',
+          provider: finalOptions?.provider || 'unknown',
+          model: finalOptions?.model || 'unknown',
           inputTokens: 0,
           outputTokens: 0,
           totalCost: 0,
@@ -422,8 +423,8 @@ export class AIScorer implements IContentScorer {
       .replace('{analysis}', analysisStr)
       .replace('{content}', content);
 
-    const finalOptions = options || { provider: 'anthropic', model: 'claude-3-5-haiku' };
-    return await (this.ai as any).estimateCost(prompt, finalOptions);
+    // Use provided options or let GooseAI use its configured defaults  
+    return await (this.ai as any).estimateCost(prompt, options);
   }
 
   /**

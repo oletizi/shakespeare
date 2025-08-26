@@ -1,10 +1,3 @@
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-
 // src/utils/scanner.ts
 import fs from "fs/promises";
 import path from "path";
@@ -596,7 +589,7 @@ var AIScorer = class {
   async improveContentWithCosts(content, analysis, options) {
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
-    const finalOptions = options || { provider: "anthropic", model: "claude-3-5-haiku" };
+    const finalOptions = options;
     try {
       if ("promptWithOptions" in this.ai && typeof this.ai.promptWithOptions === "function") {
         const response = await this.ai.promptWithOptions(prompt, finalOptions);
@@ -611,8 +604,8 @@ var AIScorer = class {
         return {
           content: sections[0] || content,
           costInfo: {
-            provider: finalOptions.provider || "unknown",
-            model: finalOptions.model || "unknown",
+            provider: finalOptions?.provider || "unknown",
+            model: finalOptions?.model || "unknown",
             inputTokens: Math.ceil(prompt.length / 4),
             outputTokens: Math.ceil(responseText.length / 4),
             totalCost: 0,
@@ -626,8 +619,8 @@ var AIScorer = class {
       return {
         content,
         costInfo: {
-          provider: finalOptions.provider || "unknown",
-          model: finalOptions.model || "unknown",
+          provider: finalOptions?.provider || "unknown",
+          model: finalOptions?.model || "unknown",
           inputTokens: 0,
           outputTokens: 0,
           totalCost: 0,
@@ -679,8 +672,7 @@ var AIScorer = class {
     }
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
-    const finalOptions = options || { provider: "anthropic", model: "claude-3-5-haiku" };
-    return await this.ai.estimateCost(prompt, finalOptions);
+    return await this.ai.estimateCost(prompt, options);
   }
   /**
    * Score a specific dimension with cost tracking
@@ -873,7 +865,13 @@ var Shakespeare = class _Shakespeare {
     let improvedContent;
     try {
       console.log(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
-      improvedContent = await this.ai.improveContent(content, analysis);
+      const improveOptions = await this.getWorkflowModelOptions("improve");
+      if ("improveContentWithCosts" in this.ai && typeof this.ai.improveContentWithCosts === "function") {
+        const response = await this.ai.improveContentWithCosts(content, analysis, improveOptions);
+        improvedContent = response.content;
+      } else {
+        improvedContent = await this.ai.improveContent(content, analysis);
+      }
       console.log(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
       if (!improvedContent || improvedContent.trim().length === 0) {
         throw new Error("AI returned empty improved content");
@@ -1107,10 +1105,10 @@ var Shakespeare = class _Shakespeare {
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
    */
-  static create(config = {}) {
+  static async create(config = {}) {
     const rootDir = config.rootDir || process.cwd();
     const dbPath = config.dbPath;
-    const detectedType = detectProjectType(rootDir);
+    const detectedType = await detectProjectType(rootDir);
     const contentCollection = config.contentCollection || detectedType;
     const defaultModelOptions = getOptimizedModelOptions(config);
     const options = {
@@ -1124,52 +1122,120 @@ var Shakespeare = class _Shakespeare {
     return shakespeare;
   }
   /**
-   * Create Shakespeare from configuration file
+   * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath) {
-    const path4 = __require("path");
+    const { join } = await import("path");
+    const { existsSync, readFileSync } = await import("fs");
     const rootDir = process.cwd();
     const possiblePaths = [
       configPath,
-      path4.join(rootDir, "shakespeare.config.js"),
-      path4.join(rootDir, "shakespeare.config.mjs"),
-      path4.join(rootDir, "shakespeare.config.json"),
-      path4.join(rootDir, ".shakespeare.json")
+      join(rootDir, "shakespeare.config.js"),
+      join(rootDir, "shakespeare.config.mjs"),
+      join(rootDir, "shakespeare.config.json"),
+      join(rootDir, ".shakespeare.json")
     ].filter(Boolean);
     for (const configFile of possiblePaths) {
       try {
-        const fs4 = __require("fs");
-        if (fs4.existsSync(configFile)) {
+        if (existsSync(configFile)) {
           let config;
           if (configFile.endsWith(".json")) {
-            config = JSON.parse(fs4.readFileSync(configFile, "utf-8"));
+            config = JSON.parse(readFileSync(configFile, "utf-8"));
           } else {
             const configModule = await import(configFile);
             config = configModule.default || configModule;
           }
-          return _Shakespeare.create(config);
+          return await _Shakespeare.create(config);
         }
       } catch (error) {
         console.warn(`Failed to load config from ${configFile}: ${error}`);
       }
     }
-    return _Shakespeare.create();
+    try {
+      const dbPath = join(rootDir, ".shakespeare", "content-db.json");
+      if (existsSync(dbPath)) {
+        const db = JSON.parse(readFileSync(dbPath, "utf-8"));
+        if (db.config) {
+          const shakespeareConfig = await _Shakespeare.workflowConfigToShakespeareConfig(db.config, rootDir);
+          return await _Shakespeare.create(shakespeareConfig);
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to load config from database: ${error}`);
+    }
+    return await _Shakespeare.create();
+  }
+  /**
+   * Convert WorkflowConfig to ShakespeareConfig
+   */
+  static async workflowConfigToShakespeareConfig(workflowConfig, rootDir) {
+    const config = {
+      rootDir,
+      verbose: workflowConfig.verbose
+    };
+    if (workflowConfig.contentCollection) {
+      config.contentCollection = workflowConfig.contentCollection;
+    }
+    if (workflowConfig.models?.review) {
+      config.model = workflowConfig.models.review;
+    }
+    if (workflowConfig.providers?.review) {
+      config.provider = workflowConfig.providers.review;
+    }
+    if (config.provider || config.model) {
+      config.modelOptions = {
+        provider: config.provider,
+        model: config.model
+      };
+    }
+    return config;
+  }
+  // ========== WORKFLOW CONFIGURATION METHODS ==========
+  /**
+   * Save workflow configuration to the content database
+   */
+  async saveWorkflowConfig(workflowConfig) {
+    await this.db.load();
+    const currentData = this.db.getData();
+    currentData.config = workflowConfig;
+    await this.db.save();
+    this.log("\u{1F4BE} Workflow configuration saved to content database");
+  }
+  /**
+   * Get current workflow configuration from database
+   */
+  async getWorkflowConfig() {
+    await this.db.load();
+    return this.db.getData().config;
+  }
+  /**
+   * Get workflow-specific model options for an operation type
+   */
+  async getWorkflowModelOptions(workflowType) {
+    const config = await this.getWorkflowConfig();
+    if (!config) return void 0;
+    const provider = config.providers?.[workflowType];
+    const model = config.models?.[workflowType];
+    if (provider || model) {
+      return { provider, model };
+    }
+    return void 0;
   }
 };
 function createShakespeare(rootDir, dbPath, options) {
   return new Shakespeare(rootDir, dbPath, options);
 }
-function detectProjectType(rootDir) {
-  const fs4 = __require("fs");
-  const path4 = __require("path");
+async function detectProjectType(rootDir) {
   try {
-    if (fs4.existsSync(path4.join(rootDir, "astro.config.mjs")) || fs4.existsSync(path4.join(rootDir, "astro.config.js")) || fs4.existsSync(path4.join(rootDir, "src/content"))) {
+    const { existsSync } = await import("fs");
+    const { join } = await import("path");
+    if (existsSync(join(rootDir, "astro.config.mjs")) || existsSync(join(rootDir, "astro.config.js")) || existsSync(join(rootDir, "src/content"))) {
       return "astro";
     }
-    if (fs4.existsSync(path4.join(rootDir, "next.config.js")) || fs4.existsSync(path4.join(rootDir, "next.config.mjs"))) {
+    if (existsSync(join(rootDir, "next.config.js")) || existsSync(join(rootDir, "next.config.mjs"))) {
       return "nextjs";
     }
-    if (fs4.existsSync(path4.join(rootDir, "gatsby-config.js")) || fs4.existsSync(path4.join(rootDir, "gatsby-config.ts"))) {
+    if (existsSync(join(rootDir, "gatsby-config.js")) || existsSync(join(rootDir, "gatsby-config.ts"))) {
       return "gatsby";
     }
     return "custom";

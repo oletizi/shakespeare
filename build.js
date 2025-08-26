@@ -58,6 +58,16 @@ async function buildAll() {
       outfile: 'dist/index.js',
     });
 
+    // Build CLI
+    await build({
+      ...commonOptions,
+      entryPoints: ['src/cli.ts'],
+      outfile: 'dist/cli.js',
+      banner: {
+        js: '#!/usr/bin/env node'
+      }
+    });
+
     // Build scripts
     await build({
       ...commonOptions,

@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2025-08-26T10:24:20.293Z",
+  "lastUpdated": "2025-08-26T10:49:43.896Z",
   "entries": {
     "../test-content.md": {
       "path": "../test-content.md",
@@ -21,6 +21,40 @@
       "improvementIterations": 0,
       "status": "needs_review",
       "reviewHistory": []
+    }
+  },
+  "config": {
+    "contentCollection": "astro",
+    "verbose": true,
+    "models": {
+      "review": "gpt-4o-mini",
+      "improve": "claude-3-5-sonnet",
+      "generate": "claude-3-5-sonnet"
+    },
+    "providers": {
+      "review": "openai",
+      "improve": "anthropic",
+      "generate": "anthropic"
+    },
+    "workflows": {
+      "discover": {
+        "resetExisting": false,
+        "autoInit": true
+      },
+      "review": {
+        "batchSize": 5,
+        "estimateCosts": true,
+        "retryFailures": true
+      },
+      "improve": {
+        "maxCount": 3,
+        "requireReviewFirst": true,
+        "targetThreshold": 7
+      },
+      "complete": {
+        "improveCount": 3,
+        "runDiscovery": true
+      }
     }
   }
 }

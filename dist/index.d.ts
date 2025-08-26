@@ -1,5 +1,5 @@
 import { AIScorerOptions } from '@/utils/ai';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
 export { GooseAI } from '@/utils/goose';
@@ -149,11 +149,27 @@ export declare class Shakespeare {
     /**
      * Create Shakespeare instance with smart defaults and auto-detection
      */
-    static create(config?: ShakespeareConfig): Shakespeare;
+    static create(config?: ShakespeareConfig): Promise<Shakespeare>;
     /**
-     * Create Shakespeare from configuration file
+     * Create Shakespeare from configuration file or database config
      */
     static fromConfig(configPath?: string): Promise<Shakespeare>;
+    /**
+     * Convert WorkflowConfig to ShakespeareConfig
+     */
+    private static workflowConfigToShakespeareConfig;
+    /**
+     * Save workflow configuration to the content database
+     */
+    saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void>;
+    /**
+     * Get current workflow configuration from database
+     */
+    getWorkflowConfig(): Promise<WorkflowConfig | undefined>;
+    /**
+     * Get workflow-specific model options for an operation type
+     */
+    private getWorkflowModelOptions;
 }
 /**
  * Factory function for creating Shakespeare instances
