@@ -1,3 +1,4 @@
+import { ContentEntry, ContentStatus } from '@/types/content';
 import { AIScorerOptions } from '@/utils/ai';
 import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
 export * from '@/types/content';
@@ -62,11 +63,20 @@ export interface WorkflowResult {
 }
 export declare class Shakespeare {
     private scanner;
-    private db;
+    private _db;
     private ai;
     private rootDir;
     private dbPath;
     private verbose;
+    /** Configuration used to create this instance */
+    readonly config: ShakespeareConfig;
+    /** Model options being used for AI operations */
+    readonly modelOptions?: AIModelOptions;
+    /**
+     * Get database instance for testing purposes
+     * @internal
+     */
+    get db(): IContentDatabase;
     constructor(rootDir?: string, dbPath?: string, options?: ShakespeareOptions);
     /**
      * Initialize the system
@@ -87,8 +97,17 @@ export declare class Shakespeare {
     getDatabaseData(): import("@/types/content").ContentDatabase;
     /**
      * Get content that needs review (unreviewed/discovered content)
+     * @deprecated Use getContentNeedingReviewDetails() for full content objects
      */
     getContentNeedingReview(): string[];
+    /**
+     * Get detailed content objects that need review
+     */
+    getContentNeedingReviewDetails(): ContentEntry[];
+    /**
+     * Get content entries by status
+     */
+    getContentByStatus(status: ContentStatus): ContentEntry[];
     /**
      * Review/score a specific content file
      */
@@ -109,6 +128,14 @@ export declare class Shakespeare {
      * Set verbose logging for progress reporting
      */
     setVerbose(verbose: boolean): void;
+    /**
+     * Get current verbose setting
+     */
+    isVerbose(): boolean;
+    /**
+     * Get current model options being used
+     */
+    getModelOptions(): AIModelOptions | undefined;
     /**
      * Log message if verbose mode is enabled
      */

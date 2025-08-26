@@ -709,8 +709,16 @@ var Shakespeare = class _Shakespeare {
     this.verbose = false;
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
+    this.config = {
+      rootDir,
+      dbPath,
+      contentCollection: options.contentCollection,
+      verbose: this.verbose,
+      modelOptions: options.defaultModelOptions
+    };
+    this.modelOptions = options.defaultModelOptions;
     this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
-    this.db = options.database ?? new ContentDatabaseHandler(this.dbPath);
+    this._db = options.database ?? new ContentDatabaseHandler(this.dbPath);
     if (options.ai) {
       this.ai = options.ai;
     } else {
@@ -727,10 +735,17 @@ var Shakespeare = class _Shakespeare {
     fs3.mkdir(dbDir, { recursive: true }).catch(console.error);
   }
   /**
+   * Get database instance for testing purposes
+   * @internal
+   */
+  get db() {
+    return this._db;
+  }
+  /**
    * Initialize the system
    */
   async initialize() {
-    await this.db.load();
+    await this._db.load();
   }
   /**
    * Discover and index content without scoring (lightweight operation)
@@ -738,7 +753,7 @@ var Shakespeare = class _Shakespeare {
    */
   async discoverContent() {
     const files = await this.scanner.scanContent();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const newFiles = [];
     for (const file of files) {
       if (!database.entries[file]) {
@@ -758,11 +773,11 @@ var Shakespeare = class _Shakespeare {
           // Mark as unreviewed
           reviewHistory: []
         };
-        await this.db.updateEntry(file, (_entry) => newEntry);
+        await this._db.updateEntry(file, (_entry) => newEntry);
         newFiles.push(file);
       }
     }
-    await this.db.save();
+    await this._db.save();
     return newFiles;
   }
   /**
@@ -770,7 +785,7 @@ var Shakespeare = class _Shakespeare {
    */
   async updateContentIndex() {
     const files = await this.scanner.scanContent();
-    const database = this.db.getData();
+    const database = this._db.getData();
     for (const file of files) {
       if (!database.entries[file]) {
         const content = await this.scanner.readContent(file);
@@ -788,7 +803,7 @@ var Shakespeare = class _Shakespeare {
             improvements: []
           }]
         };
-        await this.db.updateEntry(file, (_entry) => newEntry);
+        await this._db.updateEntry(file, (_entry) => newEntry);
       }
     }
   }
@@ -796,20 +811,35 @@ var Shakespeare = class _Shakespeare {
    * Get the current database data
    */
   getDatabaseData() {
-    return this.db.getData();
+    return this._db.getData();
   }
   /**
    * Get content that needs review (unreviewed/discovered content)
+   * @deprecated Use getContentNeedingReviewDetails() for full content objects
    */
   getContentNeedingReview() {
-    const database = this.db.getData();
+    const database = this._db.getData();
     return Object.entries(database.entries).filter(([_, entry]) => entry.status === "needs_review").map(([path4, _]) => path4);
+  }
+  /**
+   * Get detailed content objects that need review
+   */
+  getContentNeedingReviewDetails() {
+    const database = this._db.getData();
+    return Object.entries(database.entries).filter(([_, entry]) => entry.status === "needs_review").map(([_, entry]) => entry);
+  }
+  /**
+   * Get content entries by status
+   */
+  getContentByStatus(status) {
+    const database = this._db.getData();
+    return Object.entries(database.entries).filter(([_, entry]) => entry.status === status).map(([_, entry]) => entry);
   }
   /**
    * Review/score a specific content file
    */
   async reviewContent(path4) {
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entry = database.entries[path4];
     if (!entry) {
       throw new Error(`Content not found: ${path4}`);
@@ -830,14 +860,14 @@ var Shakespeare = class _Shakespeare {
         improvements: []
       }]
     };
-    await this.db.updateEntry(path4, () => updatedEntry);
-    await this.db.save();
+    await this._db.updateEntry(path4, () => updatedEntry);
+    await this._db.save();
   }
   /**
    * Get the entry with the lowest average score (excludes unreviewed content)
    */
   getWorstScoringContent() {
-    const database = this.db.getData();
+    const database = this._db.getData();
     let worstScore = Infinity;
     let worstPath = null;
     for (const [path4, entry] of Object.entries(database.entries)) {
@@ -855,7 +885,7 @@ var Shakespeare = class _Shakespeare {
    * Improve content at the specified path
    */
   async improveContent(path4) {
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entry = database.entries[path4];
     if (!entry) {
       throw new Error(`No content found at path: ${path4}`);
@@ -893,7 +923,7 @@ var Shakespeare = class _Shakespeare {
       console.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
       throw writeError;
     }
-    await this.db.updateEntry(path4, (entry2) => {
+    await this._db.updateEntry(path4, (entry2) => {
       if (!entry2) {
         throw new Error(`Entry not found for path: ${path4}`);
       }
@@ -928,6 +958,19 @@ var Shakespeare = class _Shakespeare {
    */
   setVerbose(verbose) {
     this.verbose = verbose;
+    this.config.verbose = verbose;
+  }
+  /**
+   * Get current verbose setting
+   */
+  isVerbose() {
+    return this.verbose;
+  }
+  /**
+   * Get current model options being used
+   */
+  getModelOptions() {
+    return this.modelOptions;
   }
   /**
    * Log message if verbose mode is enabled
@@ -983,7 +1026,7 @@ var Shakespeare = class _Shakespeare {
     const startTime = Date.now();
     this.log("\u{1F4CA} Starting content review...");
     await this.initialize();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const contentNeedingReview = Object.entries(database.entries).filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
     if (contentNeedingReview.length === 0) {
       this.log("\u2705 No content needs review");
@@ -1081,7 +1124,7 @@ var Shakespeare = class _Shakespeare {
    */
   async getStatus() {
     await this.initialize();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entries = Object.entries(database.entries);
     const needsReview = entries.filter(([, entry]) => entry.status === "needs_review").length;
     const needsImprovement = entries.filter(([, entry]) => entry.status === "needs_improvement").length;
@@ -1116,6 +1159,12 @@ var Shakespeare = class _Shakespeare {
       defaultModelOptions
     };
     const shakespeare = new _Shakespeare(rootDir, dbPath, options);
+    shakespeare.config = {
+      ...shakespeare.config,
+      ...config,
+      contentCollection,
+      modelOptions: defaultModelOptions
+    };
     if (config.verbose) {
       shakespeare.setVerbose(true);
     }
@@ -1195,18 +1244,18 @@ var Shakespeare = class _Shakespeare {
    * Save workflow configuration to the content database
    */
   async saveWorkflowConfig(workflowConfig) {
-    await this.db.load();
-    const currentData = this.db.getData();
+    await this._db.load();
+    const currentData = this._db.getData();
     currentData.config = workflowConfig;
-    await this.db.save();
+    await this._db.save();
     this.log("\u{1F4BE} Workflow configuration saved to content database");
   }
   /**
    * Get current workflow configuration from database
    */
   async getWorkflowConfig() {
-    await this.db.load();
-    return this.db.getData().config;
+    await this._db.load();
+    return this._db.getData().config;
   }
   /**
    * Get workflow-specific model options for an operation type
