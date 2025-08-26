@@ -2,6 +2,8 @@ import { AIScorerOptions } from '@/utils/ai';
 import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
+export { GooseAI } from '@/utils/goose';
+export { AIScorer } from '@/utils/ai';
 /**
  * Options for Shakespeare constructor
  */

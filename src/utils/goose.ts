@@ -102,7 +102,15 @@ export class GooseAI implements IAI {
 
       goose.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`Goose failed with code ${code}: ${error}`));
+          // Enhanced error reporting with more diagnostic info
+          const errorMsg = [
+            `Goose failed with exit code ${code}`,
+            error ? `STDERR: ${error}` : 'STDERR: (empty)',
+            output ? `STDOUT: ${output.substring(0, 200)}...` : 'STDOUT: (empty)',
+            `Command: ${this.gooseCommand} ${args.join(' ')}`,
+            `Prompt length: ${prompt.length} chars`
+          ].join('\n');
+          reject(new Error(errorMsg));
         } else {
           const content = output.trim();
           const costInfo = this.calculateCostInfo(

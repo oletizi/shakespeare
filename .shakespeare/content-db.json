@@ -1,4 +1,26 @@
 {
-  "lastUpdated": "2025-08-26T06:08:52.970Z",
-  "entries": {}
+  "lastUpdated": "2025-08-26T10:24:20.293Z",
+  "entries": {
+    "../test-content.md": {
+      "path": "../test-content.md",
+      "currentScores": {
+        "readability": 0,
+        "seoScore": 0,
+        "technicalAccuracy": 0,
+        "engagement": 0,
+        "contentDepth": 0
+      },
+      "targetScores": {
+        "readability": 8,
+        "seoScore": 8.5,
+        "technicalAccuracy": 9,
+        "engagement": 8,
+        "contentDepth": 8.5
+      },
+      "lastReviewDate": "2025-08-26T10:24:07.728Z",
+      "improvementIterations": 0,
+      "status": "needs_review",
+      "reviewHistory": []
+    }
+  }
 }

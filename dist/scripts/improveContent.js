@@ -268,7 +268,14 @@ var GooseAI = class {
       });
       goose.on("close", (code) => {
         if (code !== 0) {
-          reject(new Error(`Goose failed with code ${code}: ${error}`));
+          const errorMsg = [
+            `Goose failed with exit code ${code}`,
+            error ? `STDERR: ${error}` : "STDERR: (empty)",
+            output ? `STDOUT: ${output.substring(0, 200)}...` : "STDOUT: (empty)",
+            `Command: ${this.gooseCommand} ${args.join(" ")}`,
+            `Prompt length: ${prompt.length} chars`
+          ].join("\n");
+          reject(new Error(errorMsg));
         } else {
           const content = output.trim();
           const costInfo = this.calculateCostInfo(
@@ -857,9 +864,31 @@ var Shakespeare = class {
     }
     const content = await this.scanner.readContent(path5);
     const analysis = await this.ai.scoreContent(content);
-    const improvedContent = await this.ai.improveContent(content, analysis);
+    let improvedContent;
+    try {
+      console.log(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
+      improvedContent = await this.ai.improveContent(content, analysis);
+      console.log(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
+      if (!improvedContent || improvedContent.trim().length === 0) {
+        throw new Error("AI returned empty improved content");
+      }
+      if (improvedContent === content) {
+        console.log("\u26A0\uFE0F  Warning: Improved content is identical to original");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`\u274C Content improvement failed: ${errorMessage}`);
+      throw error;
+    }
     const newAnalysis = await this.ai.scoreContent(improvedContent);
-    await fs3.writeFile(path5, improvedContent, "utf-8");
+    try {
+      await fs3.writeFile(path5, improvedContent, "utf-8");
+      console.log(`\u{1F4C4} Successfully wrote improved content to ${path5}`);
+    } catch (writeError) {
+      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+      console.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
+      throw writeError;
+    }
     await this.db.updateEntry(path5, (entry2) => {
       if (!entry2) {
         throw new Error(`Entry not found for path: ${path5}`);

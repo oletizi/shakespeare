@@ -10,6 +10,8 @@ import fs from 'fs/promises';
 
 export * from '@/types/content';
 export * from '@/types/interfaces';
+export { GooseAI } from '@/utils/goose';
+export { AIScorer } from '@/utils/ai';
 
 /**
  * Options for Shakespeare constructor
@@ -239,14 +241,40 @@ export class Shakespeare {
     // Get current analysis
     const analysis = await this.ai.scoreContent(content);
     
-    // Generate improved content
-    const improvedContent = await this.ai.improveContent(content, analysis);
+    // Generate improved content with better error handling
+    let improvedContent: string;
+    try {
+      console.log(`📝 Attempting to improve content with ${content.length} characters...`);
+      improvedContent = await this.ai.improveContent(content, analysis);
+      console.log(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
+      
+      // Validate that we actually got improved content
+      if (!improvedContent || improvedContent.trim().length === 0) {
+        throw new Error('AI returned empty improved content');
+      }
+      
+      if (improvedContent === content) {
+        console.log('⚠️  Warning: Improved content is identical to original');
+      }
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Content improvement failed: ${errorMessage}`);
+      throw error; // Re-throw to prevent silent failures
+    }
     
     // Score the improved content
     const newAnalysis = await this.ai.scoreContent(improvedContent);
     
     // Update the content file
-    await fs.writeFile(path, improvedContent, 'utf-8');
+    try {
+      await fs.writeFile(path, improvedContent, 'utf-8');
+      console.log(`📄 Successfully wrote improved content to ${path}`);
+    } catch (writeError) {
+      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+      console.error(`❌ Failed to write improved content to file: ${errorMessage}`);
+      throw writeError;
+    }
     
     // Update database entry
     await this.db.updateEntry(path, (entry: ContentEntry | undefined) => {
