@@ -1,0 +1,29 @@
+{
+  "name": "shakespeare",
+  "version": "1.0.0",
+  "description": "AI-driven content review and improvement system",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "update-content-index": "node dist/scripts/updateContentIndex.js",
+    "improve-content": "node dist/scripts/improveContent.js"
+  },
+  "keywords": ["content", "ai", "review"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/jest": "^29.5.5",
+    "@types/node": "^20.8.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  }
+}
