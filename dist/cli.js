@@ -731,7 +731,10 @@ var Shakespeare = class _Shakespeare {
       rootDir,
       dbPath,
       contentCollection: options.contentCollection,
-      verbose: this.verbose,
+      verbose: false,
+      // Will be updated by setVerbose() if needed
+      model: options.defaultModelOptions?.model,
+      provider: options.defaultModelOptions?.provider,
       modelOptions: options.defaultModelOptions
     };
     this.modelOptions = options.defaultModelOptions;
@@ -829,22 +832,31 @@ var Shakespeare = class _Shakespeare {
    * @deprecated Use getContentNeedingReviewDetails() for full content objects
    */
   getContentNeedingReview() {
+    if (!this._db.getData().lastUpdated) {
+      console.warn("Database not loaded. Call initialize() first.");
+    }
     const database = this._db.getData();
-    return Object.entries(database.entries).filter(([_, entry]) => entry.status === "needs_review").map(([path4, _]) => path4);
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path4, _]) => path4);
   }
   /**
    * Get detailed content objects that need review
    */
   getContentNeedingReviewDetails() {
+    if (!this._db.getData().lastUpdated) {
+      console.warn("Database not loaded. Call initialize() first.");
+    }
     const database = this._db.getData();
-    return Object.entries(database.entries).filter(([_, entry]) => entry.status === "needs_review").map(([_, entry]) => entry);
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([_, entry]) => entry);
   }
   /**
    * Get content entries by status
    */
   getContentByStatus(status) {
+    if (!this._db.getData().lastUpdated) {
+      console.warn("Database not loaded. Call initialize() first.");
+    }
     const database = this._db.getData();
-    return Object.entries(database.entries).filter(([_, entry]) => entry.status === status).map(([_, entry]) => entry);
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === status).map(([_, entry]) => entry);
   }
   /**
    * Review/score a specific content file
@@ -1174,6 +1186,8 @@ var Shakespeare = class _Shakespeare {
       ...shakespeare.config,
       ...config,
       contentCollection,
+      model: defaultModelOptions?.model || config.model,
+      provider: defaultModelOptions?.provider || config.provider,
       modelOptions: defaultModelOptions
     };
     if (config.verbose) {
@@ -1205,7 +1219,11 @@ var Shakespeare = class _Shakespeare {
             const configModule = await import(configFile);
             config = configModule.default || configModule;
           }
-          return await _Shakespeare.create(config);
+          const shakespeare = await _Shakespeare.create(config);
+          if (config.verbose !== void 0) {
+            shakespeare.setVerbose(config.verbose);
+          }
+          return shakespeare;
         }
       } catch (error) {
         console.warn(`Failed to load config from ${configFile}: ${error}`);
@@ -1217,7 +1235,11 @@ var Shakespeare = class _Shakespeare {
         const db = JSON.parse(readFileSync(dbPath, "utf-8"));
         if (db.config) {
           const shakespeareConfig = await _Shakespeare.workflowConfigToShakespeareConfig(db.config, rootDir);
-          return await _Shakespeare.create(shakespeareConfig);
+          const shakespeare = await _Shakespeare.create(shakespeareConfig);
+          if (shakespeareConfig.verbose !== void 0) {
+            shakespeare.setVerbose(shakespeareConfig.verbose);
+          }
+          return shakespeare;
         }
       }
     } catch (error) {
