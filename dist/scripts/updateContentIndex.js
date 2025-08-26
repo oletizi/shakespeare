@@ -197,6 +197,147 @@ var DEFAULT_TARGET_SCORES = {
 
 // src/utils/goose.ts
 import { spawn } from "child_process";
+
+// src/utils/logger.ts
+import winston from "winston";
+var ShakespeareLogger = class {
+  logger;
+  verboseEnabled = false;
+  constructor() {
+    this.logger = winston.createLogger({
+      level: "info",
+      format: winston.format.combine(
+        winston.format.timestamp({ format: "HH:mm:ss.SSS" }),
+        winston.format.errors({ stack: true }),
+        winston.format.json()
+      ),
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.printf(({ timestamp, level, message, ...meta }) => {
+              const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
+              return `[${timestamp}] ${level}: ${message}${metaStr}`;
+            })
+          )
+        })
+      ]
+    });
+  }
+  /**
+   * Enable or disable verbose logging
+   */
+  setVerbose(enabled) {
+    this.verboseEnabled = enabled;
+    this.logger.level = enabled ? "debug" : "info";
+  }
+  /**
+   * Check if verbose mode is enabled
+   */
+  isVerbose() {
+    return this.verboseEnabled;
+  }
+  /**
+   * Always log - shown regardless of verbose setting
+   */
+  always(message, meta) {
+    this.logger.info(message, meta);
+  }
+  /**
+   * Verbose level logging - only shown when verbose is enabled
+   */
+  verbose(message, meta) {
+    if (this.verboseEnabled) {
+      this.logger.info(`\u{1F527} ${message}`, meta);
+    }
+  }
+  /**
+   * Debug level logging - detailed information for debugging
+   */
+  debug(message, meta) {
+    if (this.verboseEnabled) {
+      this.logger.debug(`\u{1F41B} ${message}`, meta);
+    }
+  }
+  /**
+   * Info level logging - general information
+   */
+  info(message, meta) {
+    this.logger.info(message, meta);
+  }
+  /**
+   * Warning level logging
+   */
+  warn(message, meta) {
+    this.logger.warn(`\u26A0\uFE0F  ${message}`, meta);
+  }
+  /**
+   * Error level logging
+   */
+  error(message, meta) {
+    this.logger.error(`\u274C ${message}`, meta);
+  }
+  /**
+   * Log command execution with elided content
+   */
+  logCommand(command, args, options) {
+    if (this.verboseEnabled) {
+      const processedArgs = args.map((arg) => {
+        if (arg.length > 100 && !arg.startsWith("--") && !arg.includes("/") && !arg.includes("=")) {
+          return `[CONTENT: ${arg.length} chars]`;
+        }
+        return arg;
+      });
+      const meta = {
+        command,
+        args: processedArgs,
+        ...options?.contentLength && { contentLength: options.contentLength }
+      };
+      this.logger.debug(`\u{1F680} Executing command: ${command}`, meta);
+    }
+  }
+  /**
+   * Log timing information
+   */
+  logTiming(operation, duration, meta) {
+    if (this.verboseEnabled) {
+      this.logger.debug(`\u23F1\uFE0F  ${operation} completed in ${duration}ms`, { duration, ...meta });
+    }
+  }
+  /**
+   * Log file processing information
+   */
+  logFileProcessing(filePath, operation, meta) {
+    if (this.verboseEnabled) {
+      const fileName = filePath.split("/").pop() || filePath;
+      this.logger.debug(`\u{1F4C4} ${operation}: ${fileName}`, { filePath, operation, ...meta });
+    }
+  }
+  /**
+   * Log configuration details
+   */
+  logConfig(config) {
+    if (this.verboseEnabled) {
+      this.logger.info("\u{1F527} Configuration Details:", config);
+    }
+  }
+  /**
+   * Log statistics
+   */
+  logStats(stats) {
+    if (this.verboseEnabled) {
+      this.logger.info("\u{1F4CA} Statistics:", stats);
+    }
+  }
+  /**
+   * Create a child logger with additional context
+   */
+  child(context) {
+    return this.logger.child(context);
+  }
+};
+
+// src/utils/goose.ts
 var MODEL_COSTS = {
   // OpenAI pricing (per 1M tokens)
   "openai/gpt-4o-mini": { input: 15e-5, output: 6e-4 },
@@ -227,10 +368,18 @@ var GooseAI = class {
   gooseCommand;
   cwd;
   defaultOptions;
-  constructor(cwd = process.cwd(), defaultOptions = {}) {
+  logger;
+  constructor(cwd = process.cwd(), defaultOptions = {}, logger) {
     this.gooseCommand = "goose";
     this.cwd = cwd;
     this.defaultOptions = defaultOptions;
+    this.logger = logger || new ShakespeareLogger();
+  }
+  /**
+   * Set the logger instance for command logging
+   */
+  setLogger(logger) {
+    this.logger = logger;
   }
   /**
    * Send a prompt to Goose and get the response using headless mode (backward compatibility)
@@ -253,6 +402,7 @@ var GooseAI = class {
       args.push("--model", finalOptions.model);
     }
     args.push("--text", prompt);
+    this.logger.logCommand(this.gooseCommand, args, { contentLength: prompt.length });
     return new Promise((resolve, reject) => {
       const goose = spawn(this.gooseCommand, args, {
         cwd: this.cwd,
@@ -267,7 +417,14 @@ var GooseAI = class {
         error += data.toString();
       });
       goose.on("close", (code) => {
+        const duration = Date.now() - startTime;
         if (code !== 0) {
+          this.logger.logTiming("Goose command (failed)", duration, {
+            exitCode: code,
+            promptLength: prompt.length,
+            provider: finalOptions.provider,
+            model: finalOptions.model
+          });
           const errorMsg = [
             `Goose failed with exit code ${code}`,
             error ? `STDERR: ${error}` : "STDERR: (empty)",
@@ -284,6 +441,13 @@ var GooseAI = class {
             finalOptions,
             startTime
           );
+          this.logger.logTiming("Goose command (success)", duration, {
+            promptLength: prompt.length,
+            responseLength: content.length,
+            provider: finalOptions.provider,
+            model: finalOptions.model,
+            estimatedCost: costInfo.totalCost
+          });
           resolve({
             content,
             costInfo
@@ -711,6 +875,7 @@ var Shakespeare = class _Shakespeare {
     this.verbose = false;
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
+    this.logger = new ShakespeareLogger();
     this.config = {
       rootDir,
       dbPath,
@@ -731,13 +896,16 @@ var Shakespeare = class _Shakespeare {
       if (options.aiOptions) {
         aiScorerOptions = options.aiOptions;
       } else if (options.defaultModelOptions) {
-        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions);
+        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
+        aiScorerOptions = { ai: gooseAI };
+      } else {
+        const gooseAI = new GooseAI(rootDir, {}, this.logger);
         aiScorerOptions = { ai: gooseAI };
       }
       this.ai = new AIScorer(aiScorerOptions);
     }
     const dbDir = path3.dirname(this.dbPath);
-    fs3.mkdir(dbDir, { recursive: true }).catch(console.error);
+    fs3.mkdir(dbDir, { recursive: true }).catch((err) => this.logger.error(`Failed to create database directory: ${err}`));
   }
   /**
    * Get database instance for testing purposes
@@ -824,7 +992,7 @@ var Shakespeare = class _Shakespeare {
    */
   getContentNeedingReview() {
     if (!this._db.getData().lastUpdated) {
-      console.warn("Database not loaded. Call initialize() first.");
+      this.logger.warn("Database not loaded. Call initialize() first.");
     }
     const database = this._db.getData();
     return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path5, _]) => path5);
@@ -834,7 +1002,7 @@ var Shakespeare = class _Shakespeare {
    */
   getContentNeedingReviewDetails() {
     if (!this._db.getData().lastUpdated) {
-      console.warn("Database not loaded. Call initialize() first.");
+      this.logger.warn("Database not loaded. Call initialize() first.");
     }
     const database = this._db.getData();
     return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([_, entry]) => entry);
@@ -844,7 +1012,7 @@ var Shakespeare = class _Shakespeare {
    */
   getContentByStatus(status) {
     if (!this._db.getData().lastUpdated) {
-      console.warn("Database not loaded. Call initialize() first.");
+      this.logger.warn("Database not loaded. Call initialize() first.");
     }
     const database = this._db.getData();
     return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === status).map(([_, entry]) => entry);
@@ -908,7 +1076,7 @@ var Shakespeare = class _Shakespeare {
     const analysis = await this.ai.scoreContent(content);
     let improvedContent;
     try {
-      console.log(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
+      this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
       const improveOptions = await this.getWorkflowModelOptions("improve");
       if ("improveContentWithCosts" in this.ai && typeof this.ai.improveContentWithCosts === "function") {
         const response = await this.ai.improveContentWithCosts(content, analysis, improveOptions);
@@ -916,25 +1084,25 @@ var Shakespeare = class _Shakespeare {
       } else {
         improvedContent = await this.ai.improveContent(content, analysis);
       }
-      console.log(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
+      this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
       if (!improvedContent || improvedContent.trim().length === 0) {
         throw new Error("AI returned empty improved content");
       }
       if (improvedContent === content) {
-        console.log("\u26A0\uFE0F  Warning: Improved content is identical to original");
+        this.logger.warn("\u26A0\uFE0F  Warning: Improved content is identical to original");
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`\u274C Content improvement failed: ${errorMessage}`);
+      this.logger.error(`\u274C Content improvement failed: ${errorMessage}`);
       throw error;
     }
     const newAnalysis = await this.ai.scoreContent(improvedContent);
     try {
       await fs3.writeFile(path5, improvedContent, "utf-8");
-      console.log(`\u{1F4C4} Successfully wrote improved content to ${path5}`);
+      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${path5}`);
     } catch (writeError) {
       const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
-      console.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
+      this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
       throw writeError;
     }
     await this._db.updateEntry(path5, (entry2) => {
@@ -972,6 +1140,7 @@ var Shakespeare = class _Shakespeare {
    */
   setVerbose(verbose) {
     this.verbose = verbose;
+    this.logger.setVerbose(verbose);
     this.config.verbose = verbose;
   }
   /**
@@ -987,18 +1156,21 @@ var Shakespeare = class _Shakespeare {
     return this.modelOptions;
   }
   /**
-   * Log message if verbose mode is enabled
+   * Log message using structured logger
    * @param message - The message to log
    * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
    */
   log(message, level = "verbose") {
-    if (level === "always" || this.verbose && (level === "verbose" || level === "debug")) {
-      if (this.verbose && level !== "always") {
-        const timestamp = (/* @__PURE__ */ new Date()).toISOString().substring(11, 23);
-        console.log(`[${timestamp}] ${message}`);
-      } else {
-        console.log(message);
-      }
+    switch (level) {
+      case "always":
+        this.logger.always(message);
+        break;
+      case "verbose":
+        this.logger.verbose(message);
+        break;
+      case "debug":
+        this.logger.debug(message);
+        break;
     }
   }
   // ========== HIGH-LEVEL WORKFLOW METHODS ==========
@@ -1311,7 +1483,7 @@ var Shakespeare = class _Shakespeare {
           return shakespeare;
         }
       } catch (error) {
-        console.warn(`Failed to load config from ${configFile}: ${error}`);
+        new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
       }
     }
     try {
@@ -1328,7 +1500,7 @@ var Shakespeare = class _Shakespeare {
         }
       }
     } catch (error) {
-      console.warn(`Failed to load config from database: ${error}`);
+      new ShakespeareLogger().warn(`Failed to load config from database: ${error}`);
     }
     return await _Shakespeare.create();
   }

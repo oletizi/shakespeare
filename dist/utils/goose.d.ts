@@ -1,4 +1,5 @@
 import { IAI, AIModelOptions, AIResponse } from '@/types/interfaces';
+import { ShakespeareLogger } from '@/utils/logger';
 /**
  * Default models for cost optimization by task type
  */
@@ -27,7 +28,12 @@ export declare class GooseAI implements IAI {
     private gooseCommand;
     private cwd;
     private defaultOptions;
-    constructor(cwd?: string, defaultOptions?: AIModelOptions);
+    private logger;
+    constructor(cwd?: string, defaultOptions?: AIModelOptions, logger?: ShakespeareLogger);
+    /**
+     * Set the logger instance for command logging
+     */
+    setLogger(logger: ShakespeareLogger): void;
     /**
      * Send a prompt to Goose and get the response using headless mode (backward compatibility)
      */

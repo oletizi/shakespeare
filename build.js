@@ -43,7 +43,7 @@ const commonOptions = {
   format: 'esm',
   plugins: [aliasPlugin],
   bundle: true,
-  external: ['dotenv'], // Don't bundle dependencies
+  external: ['dotenv', 'winston'], // Don't bundle dependencies that have dynamic requires
   sourcemap: true,
 };
 

@@ -67,6 +67,7 @@ export declare class Shakespeare {
     private ai;
     private rootDir;
     private dbPath;
+    private logger;
     private verbose;
     /** Configuration used to create this instance */
     readonly config: ShakespeareConfig;
@@ -137,7 +138,7 @@ export declare class Shakespeare {
      */
     getModelOptions(): AIModelOptions | undefined;
     /**
-     * Log message if verbose mode is enabled
+     * Log message using structured logger
      * @param message - The message to log
      * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
      */

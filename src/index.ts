@@ -4,6 +4,7 @@ import { DEFAULT_TARGET_SCORES } from '@/utils/constants';
 import { ContentEntry, QualityDimensions, ContentStatus } from '@/types/content';
 import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
 import { GooseAI } from '@/utils/goose';
+import { ShakespeareLogger } from '@/utils/logger';
 import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
 import path from 'path';
 import fs from 'fs/promises';
@@ -75,6 +76,7 @@ export class Shakespeare {
   private ai: IContentScorer;
   private rootDir: string;
   private dbPath: string;
+  private logger: ShakespeareLogger;
   private verbose: boolean = false;
   
   /** Configuration used to create this instance */
@@ -94,6 +96,9 @@ export class Shakespeare {
   constructor(rootDir: string = process.cwd(), dbPath?: string, options: ShakespeareOptions = {}) {
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path.join(rootDir, '.shakespeare', 'content-db.json');
+    
+    // Initialize logger
+    this.logger = new ShakespeareLogger();
     
     // Store configuration for public access
     this.config = {
@@ -121,8 +126,12 @@ export class Shakespeare {
       if (options.aiOptions) {
         aiScorerOptions = options.aiOptions;
       } else if (options.defaultModelOptions) {
-        // Create a GooseAI instance with the specified model options
-        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions);
+        // Create a GooseAI instance with the specified model options and logger
+        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
+        aiScorerOptions = { ai: gooseAI };
+      } else {
+        // Create default GooseAI with logger
+        const gooseAI = new GooseAI(rootDir, {}, this.logger);
         aiScorerOptions = { ai: gooseAI };
       }
       
@@ -131,7 +140,7 @@ export class Shakespeare {
 
     // Ensure database directory exists
     const dbDir = path.dirname(this.dbPath);
-    fs.mkdir(dbDir, { recursive: true }).catch(console.error);
+    fs.mkdir(dbDir, { recursive: true }).catch(err => this.logger.error(`Failed to create database directory: ${err}`));
   }
 
   /**
@@ -226,7 +235,7 @@ export class Shakespeare {
   getContentNeedingReview(): string[] {
     // Ensure database is loaded
     if (!this._db.getData().lastUpdated) {
-      console.warn('Database not loaded. Call initialize() first.');
+      this.logger.warn('Database not loaded. Call initialize() first.');
     }
     const database = this._db.getData();
     return Object.entries(database.entries || {})
@@ -240,7 +249,7 @@ export class Shakespeare {
   getContentNeedingReviewDetails(): ContentEntry[] {
     // Ensure database is loaded
     if (!this._db.getData().lastUpdated) {
-      console.warn('Database not loaded. Call initialize() first.');
+      this.logger.warn('Database not loaded. Call initialize() first.');
     }
     const database = this._db.getData();
     return Object.entries(database.entries || {})
@@ -254,7 +263,7 @@ export class Shakespeare {
   getContentByStatus(status: ContentStatus): ContentEntry[] {
     // Ensure database is loaded
     if (!this._db.getData().lastUpdated) {
-      console.warn('Database not loaded. Call initialize() first.');
+      this.logger.warn('Database not loaded. Call initialize() first.');
     }
     const database = this._db.getData();
     return Object.entries(database.entries || {})
@@ -345,7 +354,7 @@ export class Shakespeare {
     // Generate improved content with better error handling
     let improvedContent: string;
     try {
-      console.log(`📝 Attempting to improve content with ${content.length} characters...`);
+      this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
       
       // Get workflow-specific model options for improvement
       const improveOptions = await this.getWorkflowModelOptions('improve');
@@ -358,7 +367,7 @@ export class Shakespeare {
         improvedContent = await this.ai.improveContent(content, analysis);
       }
       
-      console.log(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
+      this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
       
       // Validate that we actually got improved content
       if (!improvedContent || improvedContent.trim().length === 0) {
@@ -366,12 +375,12 @@ export class Shakespeare {
       }
       
       if (improvedContent === content) {
-        console.log('⚠️  Warning: Improved content is identical to original');
+        this.logger.warn('⚠️  Warning: Improved content is identical to original');
       }
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`❌ Content improvement failed: ${errorMessage}`);
+      this.logger.error(`❌ Content improvement failed: ${errorMessage}`);
       throw error; // Re-throw to prevent silent failures
     }
     
@@ -381,10 +390,10 @@ export class Shakespeare {
     // Update the content file
     try {
       await fs.writeFile(path, improvedContent, 'utf-8');
-      console.log(`📄 Successfully wrote improved content to ${path}`);
+      this.logger.info(`📄 Successfully wrote improved content to ${path}`);
     } catch (writeError) {
       const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
-      console.error(`❌ Failed to write improved content to file: ${errorMessage}`);
+      this.logger.error(`❌ Failed to write improved content to file: ${errorMessage}`);
       throw writeError;
     }
     
@@ -428,6 +437,7 @@ export class Shakespeare {
    */
   setVerbose(verbose: boolean): void {
     this.verbose = verbose;
+    this.logger.setVerbose(verbose);
     // Update the public config to reflect the change
     (this.config as any).verbose = verbose;
   }
@@ -447,19 +457,21 @@ export class Shakespeare {
   }
 
   /**
-   * Log message if verbose mode is enabled
+   * Log message using structured logger
    * @param message - The message to log
    * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
    */
   private log(message: string, level: 'always' | 'verbose' | 'debug' = 'verbose'): void {
-    if (level === 'always' || (this.verbose && (level === 'verbose' || level === 'debug'))) {
-      // Add timestamp in verbose mode for debugging
-      if (this.verbose && level !== 'always') {
-        const timestamp = new Date().toISOString().substring(11, 23); // HH:mm:ss.SSS
-        console.log(`[${timestamp}] ${message}`);
-      } else {
-        console.log(message);
-      }
+    switch (level) {
+      case 'always':
+        this.logger.always(message);
+        break;
+      case 'verbose':
+        this.logger.verbose(message);
+        break;
+      case 'debug':
+        this.logger.debug(message);
+        break;
     }
   }
 
@@ -857,7 +869,7 @@ export class Shakespeare {
           return shakespeare;
         }
       } catch (error) {
-        console.warn(`Failed to load config from ${configFile}: ${error}`);
+        new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
       }
     }
     
@@ -878,7 +890,7 @@ export class Shakespeare {
         }
       }
     } catch (error) {
-      console.warn(`Failed to load config from database: ${error}`);
+      new ShakespeareLogger().warn(`Failed to load config from database: ${error}`);
     }
     
     // Fallback to default configuration

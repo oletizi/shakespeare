@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { IAI, AIModelOptions, AIResponse, AICostInfo } from '@/types/interfaces';
+import { ShakespeareLogger } from '@/utils/logger';
 
 /**
  * Cost per token (in USD) for different providers/models
@@ -47,11 +48,20 @@ export class GooseAI implements IAI {
   private gooseCommand: string;
   private cwd: string;
   private defaultOptions: AIModelOptions;
+  private logger: ShakespeareLogger;
 
-  constructor(cwd: string = process.cwd(), defaultOptions: AIModelOptions = {}) {
+  constructor(cwd: string = process.cwd(), defaultOptions: AIModelOptions = {}, logger?: ShakespeareLogger) {
     this.gooseCommand = 'goose'; // Assumes goose is in PATH
     this.cwd = cwd;
     this.defaultOptions = defaultOptions;
+    this.logger = logger || new ShakespeareLogger();
+  }
+
+  /**
+   * Set the logger instance for command logging
+   */
+  setLogger(logger: ShakespeareLogger): void {
+    this.logger = logger;
   }
 
   /**
@@ -82,6 +92,9 @@ export class GooseAI implements IAI {
     
     // Always add --text and prompt at the end
     args.push('--text', prompt);
+    
+    // Log the command being executed (with content elided)
+    this.logger.logCommand(this.gooseCommand, args, { contentLength: prompt.length });
 
     return new Promise((resolve, reject) => {
       const goose = spawn(this.gooseCommand, args, {
@@ -101,7 +114,17 @@ export class GooseAI implements IAI {
       });
 
       goose.on('close', (code) => {
+        const duration = Date.now() - startTime;
+        
         if (code !== 0) {
+          // Log failed command timing
+          this.logger.logTiming('Goose command (failed)', duration, { 
+            exitCode: code, 
+            promptLength: prompt.length,
+            provider: finalOptions.provider,
+            model: finalOptions.model 
+          });
+          
           // Enhanced error reporting with more diagnostic info
           const errorMsg = [
             `Goose failed with exit code ${code}`,
@@ -119,6 +142,15 @@ export class GooseAI implements IAI {
             finalOptions,
             startTime
           );
+          
+          // Log successful command timing
+          this.logger.logTiming('Goose command (success)', duration, { 
+            promptLength: prompt.length,
+            responseLength: content.length,
+            provider: finalOptions.provider,
+            model: finalOptions.model,
+            estimatedCost: costInfo.totalCost
+          });
           
           resolve({
             content,
