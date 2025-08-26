@@ -70,15 +70,18 @@ export class GooseAI implements IAI {
     const finalOptions = { ...this.defaultOptions, ...options };
     
     // Build goose command arguments with provider and model selection
-    const args = ['run', '--no-session', '--quiet', '--text', prompt];
+    const args = ['run', '--no-session', '--quiet'];
     
     if (finalOptions.provider) {
-      args.splice(-1, 0, '--provider', finalOptions.provider);
+      args.push('--provider', finalOptions.provider);
     }
     
     if (finalOptions.model) {
-      args.splice(-1, 0, '--model', finalOptions.model);
+      args.push('--model', finalOptions.model);
     }
+    
+    // Always add --text and prompt at the end
+    args.push('--text', prompt);
 
     return new Promise((resolve, reject) => {
       const goose = spawn(this.gooseCommand, args, {
