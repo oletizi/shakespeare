@@ -7,6 +7,9 @@
   "testMatch": [
     "**/*.test.ts"
   ],
+  "testPathIgnorePatterns": [
+    "/test/smoke/"
+  ],
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/src/$1"
   },
