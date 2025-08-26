@@ -142,13 +142,54 @@ ShakespeareFactory.forGatsby(rootDir?, dbPath?, options?)
 ShakespeareFactory.forCustom(config, rootDir?, dbPath?, options?)
 ```
 
+## Content Discovery Workflow
+
+Shakespeare provides two approaches to content management:
+
+### 1. **Lightweight Discovery** (Recommended for large projects)
+```bash
+# Quick discovery - indexes files without AI scoring
+npm run discover-content
+
+# Review individual files as needed
+npm run review-content src/content/article.md
+
+# Find worst reviewed content for improvement
+npm run improve-content
+```
+
+### 2. **Full Indexing** (All-in-one approach)
+```bash
+# Comprehensive scan with immediate AI analysis
+npm run update-content-index
+
+# Improve worst content
+npm run improve-content
+```
+
+## Content States
+
+- **`needs_review`** - Discovered but not yet analyzed by AI (zero scores)
+- **`needs_improvement`** - Reviewed with scores < 8.5 average
+- **`meets_targets`** - High quality content (≥ 8.5 average)
+- **`in_progress`** - Currently being improved
+
 ### Key Methods
 
 ```typescript
-// Scan and analyze all content
+// Lightweight content discovery (fast, no AI scoring)
+const newFiles = await shakespeare.discoverContent();
+
+// Get unreviewed content
+const needsReview = shakespeare.getContentNeedingReview();
+
+// Review specific content with AI
+await shakespeare.reviewContent(filePath);
+
+// Scan and analyze all content (slower, includes AI scoring)
 await shakespeare.updateContentIndex();
 
-// Get content that needs the most improvement
+// Get content that needs the most improvement (excludes unreviewed)
 const worstContent = await shakespeare.getWorstScoringContent();
 
 // Improve content with AI

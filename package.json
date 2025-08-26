@@ -25,6 +25,8 @@
     "test:watch": "jest --watch",
     "test:integration": "jest test/integration",
     "test:smoke": "jest test/smoke --testTimeout=90000",
+    "discover-content": "node dist/scripts/discoverContent.js",
+    "review-content": "node dist/scripts/reviewContent.js",
     "update-content-index": "node dist/scripts/updateContentIndex.js",
     "improve-content": "node dist/scripts/improveContent.js",
     "clean": "rm -rf dist",

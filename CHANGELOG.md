@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Lightweight content discovery mechanism with `discoverContent()` method
+- Separate `reviewContent()` method for selective AI scoring of individual files  
+- `getContentNeedingReview()` to identify unreviewed content
+- Content state management distinguishing unreviewed vs reviewed content
+- CLI scripts: `npm run discover-content` and `npm run review-content`
+- Smart `getWorstScoringContent()` that excludes unreviewed content
+
+### Changed
+- `getWorstScoringContent()` now excludes content with status 'needs_review' and zero scores
+- Default workflow now supports incremental content review vs full AI analysis
+
 ## [1.0.0] - 2025-08-26
 
 ### Added
