@@ -177,19 +177,11 @@ export interface IContentScorer {
  * Workflow-specific configuration stored in content-db.json
  */
 /**
- * Base interface for all configuration versions
- */
-interface ConfigBase {
-  /** Configuration schema version */
-  version: number;
-}
-
-/**
  * Version 1 configuration (legacy WorkflowConfig format)
  * @deprecated Use ShakespeareConfigV2 instead
  */
-export interface ShakespeareConfigV1 extends ConfigBase {
-  version: 1;
+export interface ShakespeareConfigV1 {
+  version?: 1;
   /** Content collection type (auto-detected if not specified) */
   contentCollection?: keyof typeof CONTENT_COLLECTIONS | 'custom';
   
@@ -256,8 +248,8 @@ export interface ShakespeareConfigV1 extends ConfigBase {
  * Version 2 configuration (current ShakespeareConfig format)
  * This is the preferred configuration format
  */
-export interface ShakespeareConfigV2 extends ConfigBase {
-  version: 2;
+export interface ShakespeareConfigV2 {
+  version?: 2;
   /** Use cost-optimized models (cheap, fast) */
   costOptimized?: boolean;
   /** Use quality-first models (expensive, best results) */

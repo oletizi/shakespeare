@@ -1535,7 +1535,7 @@ var Shakespeare = class _Shakespeare {
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
    */
-  static async create(config = { version: 2 }) {
+  static async create(config = {}) {
     const rootDir = config.rootDir || process.cwd();
     const dbPath = config.dbPath;
     const detectedType = await detectProjectType(rootDir);

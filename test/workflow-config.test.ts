@@ -116,8 +116,10 @@ describe('Workflow Configuration', () => {
     );
 
     expect(shakespeareConfig).toEqual({
+      version: 2,
       rootDir: testDir,
       verbose: true,
+      logLevel: undefined,
       contentCollection: 'gatsby',
       model: 'llama-3.1-8b',
       provider: 'groq',

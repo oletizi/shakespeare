@@ -776,7 +776,7 @@ export class Shakespeare {
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
    */
-  static async create(config: ShakespeareConfigV2 = { version: 2 }): Promise<Shakespeare> {
+  static async create(config: ShakespeareConfigV2 = {}): Promise<Shakespeare> {
     const rootDir = config.rootDir || process.cwd();
     const dbPath = config.dbPath;
     
