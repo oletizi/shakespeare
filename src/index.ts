@@ -100,7 +100,9 @@ export class Shakespeare {
       rootDir,
       dbPath,
       contentCollection: options.contentCollection,
-      verbose: this.verbose,
+      verbose: false, // Will be updated by setVerbose() if needed
+      model: options.defaultModelOptions?.model,
+      provider: options.defaultModelOptions?.provider,
       modelOptions: options.defaultModelOptions
     };
     this.modelOptions = options.defaultModelOptions;
@@ -222,8 +224,12 @@ export class Shakespeare {
    * @deprecated Use getContentNeedingReviewDetails() for full content objects
    */
   getContentNeedingReview(): string[] {
+    // Ensure database is loaded
+    if (!this._db.getData().lastUpdated) {
+      console.warn('Database not loaded. Call initialize() first.');
+    }
     const database = this._db.getData();
-    return Object.entries(database.entries)
+    return Object.entries(database.entries || {})
       .filter(([_, entry]) => entry.status === 'needs_review')
       .map(([path, _]) => path);
   }
@@ -232,8 +238,12 @@ export class Shakespeare {
    * Get detailed content objects that need review
    */
   getContentNeedingReviewDetails(): ContentEntry[] {
+    // Ensure database is loaded
+    if (!this._db.getData().lastUpdated) {
+      console.warn('Database not loaded. Call initialize() first.');
+    }
     const database = this._db.getData();
-    return Object.entries(database.entries)
+    return Object.entries(database.entries || {})
       .filter(([_, entry]) => entry.status === 'needs_review')
       .map(([_, entry]) => entry);
   }
@@ -242,8 +252,12 @@ export class Shakespeare {
    * Get content entries by status
    */
   getContentByStatus(status: ContentStatus): ContentEntry[] {
+    // Ensure database is loaded
+    if (!this._db.getData().lastUpdated) {
+      console.warn('Database not loaded. Call initialize() first.');
+    }
     const database = this._db.getData();
-    return Object.entries(database.entries)
+    return Object.entries(database.entries || {})
       .filter(([_, entry]) => entry.status === status)
       .map(([_, entry]) => entry);
   }
@@ -675,6 +689,8 @@ export class Shakespeare {
       ...shakespeare.config,
       ...config,
       contentCollection,
+      model: defaultModelOptions?.model || config.model,
+      provider: defaultModelOptions?.provider || config.provider,
       modelOptions: defaultModelOptions
     };
     
@@ -715,7 +731,12 @@ export class Shakespeare {
             config = configModule.default || configModule;
           }
           
-          return await Shakespeare.create(config);
+          const shakespeare = await Shakespeare.create(config);
+          // Ensure verbose setting is applied if specified in config
+          if (config.verbose !== undefined) {
+            shakespeare.setVerbose(config.verbose);
+          }
+          return shakespeare;
         }
       } catch (error) {
         console.warn(`Failed to load config from ${configFile}: ${error}`);
@@ -730,7 +751,12 @@ export class Shakespeare {
         if (db.config) {
           // Convert WorkflowConfig to ShakespeareConfig
           const shakespeareConfig = await Shakespeare.workflowConfigToShakespeareConfig(db.config, rootDir);
-          return await Shakespeare.create(shakespeareConfig);
+          const shakespeare = await Shakespeare.create(shakespeareConfig);
+          // Ensure verbose setting from database config is applied
+          if (shakespeareConfig.verbose !== undefined) {
+            shakespeare.setVerbose(shakespeareConfig.verbose);
+          }
+          return shakespeare;
         }
       }
     } catch (error) {
