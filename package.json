@@ -1,6 +1,6 @@
 {
   "name": "@oletizi/shakespeare",
-  "version": "1.4.6",
+  "version": "1.5.0",
   "description": "AI-driven content review and improvement system with configurable content collection support",
   "type": "module",
   "main": "dist/index.js",
