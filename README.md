@@ -211,15 +211,86 @@ Add to `.gitignore`:
 ## Testing
 
 ```bash
-# Run all tests
+# Run all tests (unit + integration, excludes smoke tests)
 npm test
 
-# Run integration tests (uses mocks)
+# Run integration tests only (uses mocks)
 npm run test:integration  
 
-# Run smoke tests (requires real AI configuration)
+# Run smoke tests manually (requires real AI configuration & expensive API calls)
 npm run test:smoke
 ```
+
+**Note**: Smoke tests are excluded from the default test suite (`npm test`) because they make real AI API calls which can be expensive. Run them manually only when needed for end-to-end verification.
+
+## Publishing
+
+This package is configured for publishing to npm with industry-standard best practices.
+
+### For Package Maintainers
+
+#### Initial Setup
+
+1. **Authenticate with npm:**
+   ```bash
+   npm login
+   ```
+
+2. **Verify package configuration:**
+   ```bash
+   npm run prepublishOnly  # Runs tests and build
+   ```
+
+#### Publishing Process
+
+**Patch Release (bug fixes):**
+```bash
+npm version patch  # 1.0.0 → 1.0.1
+npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+```
+
+**Minor Release (new features):**
+```bash
+npm version minor  # 1.0.0 → 1.1.0  
+npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+```
+
+**Major Release (breaking changes):**
+```bash
+npm version major  # 1.0.0 → 2.0.0
+npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+```
+
+#### Automated Publishing Workflow
+
+The package includes automated scripts that:
+
+- **`npm version`**: Builds the package and stages dist files
+- **`npm publish`**: Runs full test suite and build before publishing
+- **Post-publish**: Creates git tags and pushes to repository
+
+#### Manual Verification
+
+Before publishing, verify:
+
+```bash
+# Check what files will be published
+npm pack --dry-run
+
+# Verify package contents
+tar -tvf *.tgz
+
+# Test local installation
+npm install -g ./shakespeare-1.0.0.tgz
+```
+
+### Package Configuration
+
+- **Registry**: https://registry.npmjs.org/ (public)
+- **Access**: Public package under `@oletizi` scope
+- **Files**: Only `dist/`, `README.md`, and `CHANGELOG.md` are published
+- **Exports**: Proper ES module support with TypeScript declarations
+- **License**: ISC
 
 ## License
 

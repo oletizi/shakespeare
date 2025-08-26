@@ -100,38 +100,43 @@ export class MockDatabase implements IContentDatabase {
  */
 export class MockContentScorer implements IContentScorer {
   private mockImprovedContent: string;
+  private predefinedScores?: any;
 
-  constructor(mockImprovedContent: string = 'Improved content') {
-    this.mockImprovedContent = mockImprovedContent;
+  constructor(mockImprovedContentOrConfig: string | any = 'Improved content') {
+    if (typeof mockImprovedContentOrConfig === 'string') {
+      this.mockImprovedContent = mockImprovedContentOrConfig;
+    } else {
+      this.mockImprovedContent = 'Improved content';
+      this.predefinedScores = mockImprovedContentOrConfig;
+    }
   }
 
   async scoreContent(content: string): Promise<AIContentAnalysis> {
-    const scores = this.analyzeContentQuality(content);
-    return {
-      scores,
-      analysis: {
-        readability: { 
-          reasoning: this.getReadabilityReasoning(content, scores.readability), 
-          suggestions: this.getReadabilitySuggestions(scores.readability)
-        },
-        seoScore: { 
-          reasoning: this.getSEOReasoning(content, scores.seoScore), 
-          suggestions: this.getSEOSuggestions(scores.seoScore)
-        },
-        technicalAccuracy: { 
-          reasoning: this.getTechnicalReasoning(content, scores.technicalAccuracy), 
-          suggestions: this.getTechnicalSuggestions(scores.technicalAccuracy)
-        },
-        engagement: { 
-          reasoning: this.getEngagementReasoning(content, scores.engagement), 
-          suggestions: this.getEngagementSuggestions(scores.engagement)
-        },
-        contentDepth: { 
-          reasoning: this.getDepthReasoning(content, scores.contentDepth), 
-          suggestions: this.getDepthSuggestions(scores.contentDepth)
-        }
+    const scores = this.predefinedScores?.scores || this.analyzeContentQuality(content);
+    const analysis = this.predefinedScores?.analysis || {
+      readability: { 
+        reasoning: this.getReadabilityReasoning(content, scores.readability), 
+        suggestions: this.getReadabilitySuggestions(scores.readability)
+      },
+      seoScore: { 
+        reasoning: this.getSEOReasoning(content, scores.seoScore), 
+        suggestions: this.getSEOSuggestions(scores.seoScore)
+      },
+      technicalAccuracy: { 
+        reasoning: this.getTechnicalReasoning(content, scores.technicalAccuracy), 
+        suggestions: this.getTechnicalSuggestions(scores.technicalAccuracy)
+      },
+      engagement: { 
+        reasoning: this.getEngagementReasoning(content, scores.engagement), 
+        suggestions: this.getEngagementSuggestions(scores.engagement)
+      },
+      contentDepth: { 
+        reasoning: this.getDepthReasoning(content, scores.contentDepth), 
+        suggestions: this.getDepthSuggestions(scores.contentDepth)
       }
     };
+
+    return { scores, analysis };
   }
 
   private analyzeContentQuality(content: string) {

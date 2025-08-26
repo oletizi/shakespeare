@@ -1,10 +1,22 @@
 {
   "name": "@oletizi/shakespeare",
   "version": "1.0.0",
-  "description": "AI-driven content review and improvement system",
+  "description": "AI-driven content review and improvement system with configurable content collection support",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "node build.js",
     "build:old": "tsc",
@@ -14,15 +26,46 @@
     "test:integration": "jest test/integration",
     "test:smoke": "jest test/smoke --testTimeout=90000",
     "update-content-index": "node dist/scripts/updateContentIndex.js",
-    "improve-content": "node dist/scripts/improveContent.js"
+    "improve-content": "node dist/scripts/improveContent.js",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run test && npm run build",
+    "postpublish": "git tag v$npm_package_version && git push origin v$npm_package_version",
+    "version": "npm run build && git add -A dist",
+    "postversion": "git push && git push --tags"
   },
   "keywords": [
     "content",
     "ai",
-    "review"
+    "review",
+    "markdown",
+    "mdx",
+    "astro",
+    "nextjs",
+    "gatsby",
+    "content-collections",
+    "static-site-generator",
+    "typescript",
+    "goose"
   ],
-  "author": "",
+  "author": "Orion Letizi",
   "license": "ISC",
+  "homepage": "https://github.com/oletizi/shakespeare#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oletizi/shakespeare.git"
+  },
+  "bugs": {
+    "url": "https://github.com/oletizi/shakespeare/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.5",
     "@types/node": "^20.8.0",

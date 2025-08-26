@@ -5,18 +5,19 @@ import fs from 'fs/promises';
 
 describe('ContentScanner', () => {
   const testDir = path.join(__dirname, 'test-content');
-  const testSubDir = path.join(testDir, 'subdir');
+  const contentDir = path.join(testDir, 'src', 'content');
+  const testSubDir = path.join(contentDir, 'subdir');
   let scanner: ContentScanner;
 
   beforeAll(async () => {
-    // Create test directory structure
-    await fs.mkdir(testDir, { recursive: true });
+    // Create Astro-style content directory structure
+    await fs.mkdir(contentDir, { recursive: true });
     await fs.mkdir(testSubDir, { recursive: true });
 
-    // Create test files
-    await fs.writeFile(path.join(testDir, 'file1.md'), '# Test Content 1');
-    await fs.writeFile(path.join(testDir, 'file2.md'), '# Test Content 2');
-    await fs.writeFile(path.join(testDir, 'not-markdown.txt'), 'This is not markdown');
+    // Create test files in the proper content structure
+    await fs.writeFile(path.join(contentDir, 'file1.md'), '# Test Content 1');
+    await fs.writeFile(path.join(contentDir, 'file2.md'), '# Test Content 2');
+    await fs.writeFile(path.join(contentDir, 'not-markdown.txt'), 'This is not markdown');
     await fs.writeFile(path.join(testSubDir, 'nested.md'), '# Nested Content');
     await fs.writeFile(path.join(testSubDir, 'another.md'), '# Another Nested Content');
   });
@@ -62,14 +63,15 @@ describe('ContentScanner', () => {
 
   test('should handle empty directory', async () => {
     const emptyDir = path.join(testDir, 'empty');
-    await fs.mkdir(emptyDir, { recursive: true });
+    const emptyContentDir = path.join(emptyDir, 'src', 'content');
+    await fs.mkdir(emptyContentDir, { recursive: true });
     
     const emptyScanner = new ContentScanner(emptyDir);
     const files = await emptyScanner.scanContent();
     
     expect(files).toHaveLength(0);
     
-    await fs.rmdir(emptyDir);
+    await fs.rm(emptyDir, { recursive: true, force: true });
   });
 
   test('should handle non-existent directory', async () => {
@@ -79,7 +81,7 @@ describe('ContentScanner', () => {
   });
 
   test('should read content of markdown file', async () => {
-    const testFilePath = path.join(testDir, 'file1.md');
+    const testFilePath = path.join(contentDir, 'file1.md');
     const content = await scanner.readContent(testFilePath);
     
     expect(content).toBe('# Test Content 1');
