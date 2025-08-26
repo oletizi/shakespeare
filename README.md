@@ -142,13 +142,54 @@ ShakespeareFactory.forGatsby(rootDir?, dbPath?, options?)
 ShakespeareFactory.forCustom(config, rootDir?, dbPath?, options?)
 ```
 
+## Content Discovery Workflow
+
+Shakespeare provides two approaches to content management:
+
+### 1. **Lightweight Discovery** (Recommended for large projects)
+```bash
+# Quick discovery - indexes files without AI scoring
+npm run discover-content
+
+# Review individual files as needed
+npm run review-content src/content/article.md
+
+# Find worst reviewed content for improvement
+npm run improve-content
+```
+
+### 2. **Full Indexing** (All-in-one approach)
+```bash
+# Comprehensive scan with immediate AI analysis
+npm run update-content-index
+
+# Improve worst content
+npm run improve-content
+```
+
+## Content States
+
+- **`needs_review`** - Discovered but not yet analyzed by AI (zero scores)
+- **`needs_improvement`** - Reviewed with scores < 8.5 average
+- **`meets_targets`** - High quality content (≥ 8.5 average)
+- **`in_progress`** - Currently being improved
+
 ### Key Methods
 
 ```typescript
-// Scan and analyze all content
+// Lightweight content discovery (fast, no AI scoring)
+const newFiles = await shakespeare.discoverContent();
+
+// Get unreviewed content
+const needsReview = shakespeare.getContentNeedingReview();
+
+// Review specific content with AI
+await shakespeare.reviewContent(filePath);
+
+// Scan and analyze all content (slower, includes AI scoring)
 await shakespeare.updateContentIndex();
 
-// Get content that needs the most improvement
+// Get content that needs the most improvement (excludes unreviewed)
 const worstContent = await shakespeare.getWorstScoringContent();
 
 // Improve content with AI
@@ -245,21 +286,23 @@ This package is configured for publishing to npm with industry-standard best pra
 
 **Patch Release (bug fixes):**
 ```bash
-npm version patch  # 1.0.0 → 1.0.1
-npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+npm run publish:patch  # 1.0.0 → 1.0.1 + publish
+# Or manually: npm version patch && npm publish --otp=<code>
 ```
 
 **Minor Release (new features):**
 ```bash
-npm version minor  # 1.0.0 → 1.1.0  
-npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+npm run publish:minor  # 1.0.0 → 1.1.0 + publish
+# Or manually: npm version minor && npm publish --otp=<code>
 ```
 
 **Major Release (breaking changes):**
 ```bash
-npm version major  # 1.0.0 → 2.0.0
-npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+npm run publish:major  # 1.0.0 → 2.0.0 + publish
+# Or manually: npm version major && npm publish --otp=<code>
 ```
+
+**Note:** If you have 2FA enabled, you'll be prompted for your OTP code during the publish step.
 
 #### Automated Publishing Workflow
 

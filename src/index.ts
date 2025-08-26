@@ -50,6 +50,45 @@ export class Shakespeare {
   }
 
   /**
+   * Discover and index content without scoring (lightweight operation)
+   * Creates database entries for new files with 'needs_review' status
+   */
+  async discoverContent(): Promise<string[]> {
+    const files = await this.scanner.scanContent();
+    const database = this.db.getData();
+    const newFiles: string[] = [];
+
+    for (const file of files) {
+      if (!database.entries[file]) {
+        // Create lightweight entry without AI scoring
+        const newEntry: ContentEntry = {
+          path: file,
+          currentScores: {
+            readability: 0,
+            seoScore: 0,
+            technicalAccuracy: 0,
+            engagement: 0,
+            contentDepth: 0
+          },
+          targetScores: DEFAULT_TARGET_SCORES,
+          lastReviewDate: new Date().toISOString(),
+          improvementIterations: 0,
+          status: 'needs_review', // Mark as unreviewed
+          reviewHistory: []
+        };
+
+        await this.db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
+        newFiles.push(file);
+      }
+    }
+
+    // Update database timestamp
+    await this.db.save();
+    
+    return newFiles;
+  }
+
+  /**
    * Update content index with new files
    */
   async updateContentIndex(): Promise<void> {
@@ -82,7 +121,60 @@ export class Shakespeare {
   }
 
   /**
-   * Get the entry with the lowest average score
+   * Get the current database data
+   */
+  getDatabaseData() {
+    return this.db.getData();
+  }
+
+  /**
+   * Get content that needs review (unreviewed/discovered content)
+   */
+  getContentNeedingReview(): string[] {
+    const database = this.db.getData();
+    return Object.entries(database.entries)
+      .filter(([_, entry]) => entry.status === 'needs_review')
+      .map(([path, _]) => path);
+  }
+
+  /**
+   * Review/score a specific content file
+   */
+  async reviewContent(path: string): Promise<void> {
+    const database = this.db.getData();
+    const entry = database.entries[path];
+    
+    if (!entry) {
+      throw new Error(`Content not found: ${path}`);
+    }
+
+    if (entry.status !== 'needs_review') {
+      throw new Error(`Content has already been reviewed: ${path}`);
+    }
+
+    // Score the content with AI
+    const content = await this.scanner.readContent(path);
+    const analysis = await this.ai.scoreContent(content);
+
+    // Update entry with scores and proper status
+    const updatedEntry: ContentEntry = {
+      ...entry,
+      currentScores: analysis.scores,
+      lastReviewDate: new Date().toISOString(),
+      status: this.determineStatus(analysis.scores),
+      reviewHistory: [{
+        date: new Date().toISOString(),
+        scores: analysis.scores,
+        improvements: []
+      }]
+    };
+
+    await this.db.updateEntry(path, () => updatedEntry);
+    await this.db.save();
+  }
+
+  /**
+   * Get the entry with the lowest average score (excludes unreviewed content)
    */
   getWorstScoringContent(): string | null {
     const database = this.db.getData();
@@ -90,10 +182,14 @@ export class Shakespeare {
     let worstPath: string | null = null;
 
     for (const [path, entry] of Object.entries(database.entries)) {
-      if (entry.status === 'meets_targets') continue;
+      // Skip content that meets targets or hasn't been reviewed yet
+      if (entry.status === 'meets_targets' || entry.status === 'needs_review') continue;
 
       const avgScore = Object.values(entry.currentScores).reduce((a, b) => a + b, 0) / 
         Object.keys(entry.currentScores).length;
+
+      // Also skip content with zero scores (unreviewed)
+      if (avgScore === 0) continue;
 
       if (avgScore < worstScore) {
         worstScore = avgScore;
