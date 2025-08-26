@@ -34,13 +34,20 @@ This workplan enhances Shakespeare's existing workflow (content discovery → co
 - [ ] Extend `IContentScorer` for model-specific scoring strategies
 
 #### Task 1.2: Multi-Provider Implementation
-- [ ] Create new AI provider classes implementing existing `IAI` interface:
-  - OpenAI provider (GPT-4o Mini)
-  - Anthropic provider (Claude 3.5 Haiku) 
-  - Google provider (Gemini Flash)
-  - Together AI provider (DeepSeek-Chat, Llama 3.1 70B)
-- [ ] Add provider selection logic to existing `AIScorer` class
-- [ ] Maintain backward compatibility with current `GooseAI`
+- [ ] **Option A: Enhanced GooseAI with Dynamic Model Selection**
+  - Extend current `GooseAI` class to support `--provider` and `--model` CLI flags
+  - Add methods to switch models on-the-fly (e.g., `prompt(text, {provider: 'anthropic', model: 'claude-3-5-haiku'})`)
+  - Leverage Goose's built-in support for 20+ providers including OpenAI, Anthropic, Google, Groq, DeepInfra
+  - Use environment variables for API keys and configuration management
+
+- [ ] **Option B: Tetrate Agent Router Service Integration**
+  - Create `TetrateLLMProvider` class implementing existing `IAI` interface
+  - Use Tetrate's OpenAI-compatible endpoint with intelligent routing
+  - Access models from OpenAI, Anthropic, Google, xAI Grok, Groq, DeepInfra through single API
+  - Implement cost-aware model selection and automatic failover
+
+- [ ] **Implementation Decision**: Start with Option A (enhanced GooseAI) for immediate cost optimization, with Option B (Tetrate) as advanced routing for production scale
+- [ ] Maintain backward compatibility with current `GooseAI` implementation
 
 #### Task 1.3: Cost-Optimized Model Selection
 - [ ] Implement task-based model selection in `AIScorer.scoreContent()`
