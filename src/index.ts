@@ -2,8 +2,9 @@ import { ContentScanner } from '@/utils/scanner';
 import { ContentDatabaseHandler } from '@/utils/database';
 import { DEFAULT_TARGET_SCORES } from '@/utils/constants';
 import { ContentEntry, QualityDimensions } from '@/types/content';
-import { AIScorer, AIContentAnalysis } from '@/utils/ai';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS } from '@/types/interfaces';
+import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
+import { GooseAI } from '@/utils/goose';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions } from '@/types/interfaces';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -17,6 +18,10 @@ export interface ShakespeareOptions {
   scanner?: IContentScanner;
   database?: IContentDatabase;
   ai?: IContentScorer;
+  /** AI model configuration for cost optimization */
+  aiOptions?: AIScorerOptions;
+  /** Default AI model options (provider, model, etc.) */
+  defaultModelOptions?: AIModelOptions;
   /** Content collection configuration */
   contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
@@ -35,7 +40,24 @@ export class Shakespeare {
     // Create scanner with content collection configuration
     this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
     this.db = options.database ?? new ContentDatabaseHandler(this.dbPath);
-    this.ai = options.ai ?? new AIScorer();
+    
+    // Create AI scorer with proper configuration for cost optimization
+    if (options.ai) {
+      this.ai = options.ai;
+    } else {
+      // Create AIScorer with cost-optimized configuration
+      let aiScorerOptions: AIScorerOptions = {};
+      
+      if (options.aiOptions) {
+        aiScorerOptions = options.aiOptions;
+      } else if (options.defaultModelOptions) {
+        // Create a GooseAI instance with the specified model options
+        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions);
+        aiScorerOptions = { ai: gooseAI };
+      }
+      
+      this.ai = new AIScorer(aiScorerOptions);
+    }
 
     // Ensure database directory exists
     const dbDir = path.dirname(this.dbPath);
@@ -287,5 +309,9 @@ export const ShakespeareFactory = {
   
   /** Create Shakespeare with custom content collection configuration */
   forCustom: (contentConfig: ContentCollectionConfig, rootDir?: string, dbPath?: string, options: ShakespeareOptions = {}) =>
-    new Shakespeare(rootDir, dbPath, { ...options, contentCollection: contentConfig })
+    new Shakespeare(rootDir, dbPath, { ...options, contentCollection: contentConfig }),
+
+  /** Create cost-optimized Shakespeare with specific model configuration */
+  withCostOptimization: (modelOptions: AIModelOptions, rootDir?: string, dbPath?: string, options: ShakespeareOptions = {}) =>
+    new Shakespeare(rootDir, dbPath, { ...options, defaultModelOptions: modelOptions })
 };

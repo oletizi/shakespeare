@@ -706,7 +706,18 @@ var Shakespeare = class {
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
     this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
     this.db = options.database ?? new ContentDatabaseHandler(this.dbPath);
-    this.ai = options.ai ?? new AIScorer();
+    if (options.ai) {
+      this.ai = options.ai;
+    } else {
+      let aiScorerOptions = {};
+      if (options.aiOptions) {
+        aiScorerOptions = options.aiOptions;
+      } else if (options.defaultModelOptions) {
+        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions);
+        aiScorerOptions = { ai: gooseAI };
+      }
+      this.ai = new AIScorer(aiScorerOptions);
+    }
     const dbDir = path3.dirname(this.dbPath);
     fs3.mkdir(dbDir, { recursive: true }).catch(console.error);
   }

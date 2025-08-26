@@ -1,4 +1,5 @@
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS } from '@/types/interfaces';
+import { AIScorerOptions } from '@/utils/ai';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
 /**
@@ -8,6 +9,10 @@ export interface ShakespeareOptions {
     scanner?: IContentScanner;
     database?: IContentDatabase;
     ai?: IContentScorer;
+    /** AI model configuration for cost optimization */
+    aiOptions?: AIScorerOptions;
+    /** Default AI model options (provider, model, etc.) */
+    defaultModelOptions?: AIModelOptions;
     /** Content collection configuration */
     contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
@@ -72,4 +77,6 @@ export declare const ShakespeareFactory: {
     forGatsby: (rootDir?: string, dbPath?: string, options?: ShakespeareOptions) => Shakespeare;
     /** Create Shakespeare with custom content collection configuration */
     forCustom: (contentConfig: ContentCollectionConfig, rootDir?: string, dbPath?: string, options?: ShakespeareOptions) => Shakespeare;
+    /** Create cost-optimized Shakespeare with specific model configuration */
+    withCostOptimization: (modelOptions: AIModelOptions, rootDir?: string, dbPath?: string, options?: ShakespeareOptions) => Shakespeare;
 };
