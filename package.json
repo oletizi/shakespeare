@@ -1,6 +1,6 @@
 {
   "name": "@oletizi/shakespeare",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "AI-driven content review and improvement system with configurable content collection support",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
     "prepack": "npm run build",
     "prepublishOnly": "npm run test && npm run build",
     "postpublish": "git tag v$npm_package_version && git push origin v$npm_package_version",
-    "version": "npm run build && git add -A dist",
+    "version": "npm run build && git add -f dist",
     "postversion": "git push && git push --tags",
     "publish:patch": "npm version patch && npm publish",
     "publish:minor": "npm version minor && npm publish",
