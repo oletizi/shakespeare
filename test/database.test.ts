@@ -66,8 +66,11 @@ describe('ContentDatabaseHandler', () => {
 
     const data = await db.load();
     expect(data.lastUpdated).toBe('2023-01-01T00:00:00Z');
-    expect(data.entries['test.md']).toBeDefined();
-    expect(data.entries['test.md'].path).toBe('test.md');
+    
+    // The path gets converted to absolute during load
+    const expectedAbsolutePath = path.resolve(path.dirname(testDbPath), 'test.md');
+    expect(data.entries[expectedAbsolutePath]).toBeDefined();
+    expect(data.entries[expectedAbsolutePath].path).toBe(expectedAbsolutePath);
   });
 
   test('should handle corrupted database file', async () => {
@@ -213,12 +216,13 @@ describe('ContentDatabaseHandler', () => {
       reviewHistory: []
     };
 
-    await db.updateEntry('test.md', () => newEntry);
+    const testFilePath = path.resolve(path.dirname(testDbPath), 'test.md');
+    await db.updateEntry(testFilePath, () => ({ ...newEntry, path: testFilePath }));
 
     // Create new database instance and load from file
     const db2 = new ContentDatabaseHandler(testDbPath);
     const data = await db2.load();
 
-    expect(data.entries['test.md']).toEqual(newEntry);
+    expect(data.entries[testFilePath]).toEqual({ ...newEntry, path: testFilePath });
   });
 });

@@ -6,10 +6,11 @@ import path from 'path';
 import fs from 'fs/promises';
 
 describe('Shakespeare Integration Tests', () => {
+  jest.setTimeout(30000); // 30 second timeout for integration tests
   // Use project root test-output directory (git-ignored)
   const projectRoot = path.join(__dirname, '..', '..');
   const testDir = path.join(projectRoot, 'test-output', 'integration');
-  const contentDir = path.join(testDir, 'content');
+  const contentDir = path.join(testDir, 'src', 'content');
   const dbPath = path.join(testDir, '.shakespeare', 'content-db.json');
   
   let shakespeare: Shakespeare;
@@ -116,7 +117,7 @@ These files allow inspection of:
     mockAI = new MockAI(aiResponses);
     const aiScorer = new AIScorer({ ai: mockAI });
     
-    shakespeare = new Shakespeare(contentDir, dbPath, { ai: aiScorer });
+    shakespeare = new Shakespeare(testDir, dbPath, { ai: aiScorer });
   });
 
   afterEach(async () => {
