@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { IAI } from '@/types/interfaces';
 
 /**
- * Goose AI interaction handler using CLI
+ * Goose AI interaction handler using CLI in headless mode
  */
 export class GooseAI implements IAI {
   private gooseCommand: string;
@@ -14,11 +14,14 @@ export class GooseAI implements IAI {
   }
 
   /**
-   * Send a prompt to Goose and get the response
+   * Send a prompt to Goose and get the response using headless mode
    */
   async prompt(prompt: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const goose = spawn(this.gooseCommand, [], {
+      // Use goose run with --no-session and --quiet for headless automation
+      const args = ['run', '--no-session', '--quiet', '--text', prompt];
+      
+      const goose = spawn(this.gooseCommand, args, {
         cwd: this.cwd,
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -38,12 +41,11 @@ export class GooseAI implements IAI {
         if (code !== 0) {
           reject(new Error(`Goose failed with code ${code}: ${error}`));
         } else {
-          resolve(output);
+          resolve(output.trim());
         }
       });
 
-      goose.stdin.write(prompt);
-      goose.stdin.end();
+      // No need to write to stdin with --text flag
     });
   }
 }
