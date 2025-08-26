@@ -176,12 +176,28 @@ export interface IContentScorer {
 /**
  * Workflow-specific configuration stored in content-db.json
  */
-export interface WorkflowConfig {
+/**
+ * Base interface for all configuration versions
+ */
+interface ConfigBase {
+  /** Configuration schema version */
+  version: number;
+}
+
+/**
+ * Version 1 configuration (legacy WorkflowConfig format)
+ * @deprecated Use ShakespeareConfigV2 instead
+ */
+export interface ShakespeareConfigV1 extends ConfigBase {
+  version: 1;
   /** Content collection type (auto-detected if not specified) */
   contentCollection?: keyof typeof CONTENT_COLLECTIONS | 'custom';
   
   /** Enable verbose logging */
   verbose?: boolean;
+  
+  /** Log level for structured logging */
+  logLevel?: 'error' | 'warn' | 'info' | 'debug';
   
   /** Model configuration for different workflow types */
   models?: {
@@ -235,3 +251,42 @@ export interface WorkflowConfig {
     };
   };
 }
+
+/**
+ * Version 2 configuration (current ShakespeareConfig format)
+ * This is the preferred configuration format
+ */
+export interface ShakespeareConfigV2 extends ConfigBase {
+  version: 2;
+  /** Use cost-optimized models (cheap, fast) */
+  costOptimized?: boolean;
+  /** Use quality-first models (expensive, best results) */
+  qualityFirst?: boolean;
+  /** Override specific model */
+  model?: string;
+  /** Override specific provider */
+  provider?: string;
+  /** Custom model options */
+  modelOptions?: AIModelOptions;
+  /** Enable verbose progress reporting */
+  verbose?: boolean;
+  /** Log level for structured logging */
+  logLevel?: 'error' | 'warn' | 'info' | 'debug';
+  /** Project root directory */
+  rootDir?: string;
+  /** Database path override */
+  dbPath?: string;
+  /** Content collection override */
+  contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
+}
+
+/**
+ * Union type for all supported configuration versions
+ */
+export type ShakespeareConfig = ShakespeareConfigV1 | ShakespeareConfigV2;
+
+/**
+ * Legacy aliases for backward compatibility
+ * @deprecated Use ShakespeareConfigV1 or ShakespeareConfigV2 instead
+ */
+export type WorkflowConfig = ShakespeareConfigV1;

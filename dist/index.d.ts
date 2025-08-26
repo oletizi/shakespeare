@@ -1,7 +1,7 @@
 import { ContentEntry, ContentStatus } from '@/types/content';
 import { AIScorerOptions } from '@/utils/ai';
 import { ShakespeareLogger } from '@/utils/logger';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig, ShakespeareConfigV2 } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
 export { GooseAI } from '@/utils/goose';
@@ -18,31 +18,6 @@ export interface ShakespeareOptions {
     /** Default AI model options (provider, model, etc.) */
     defaultModelOptions?: AIModelOptions;
     /** Content collection configuration */
-    contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
-}
-/**
- * High-level configuration options for simplified setup
- */
-export interface ShakespeareConfig {
-    /** Use cost-optimized models (cheap, fast) */
-    costOptimized?: boolean;
-    /** Use quality-first models (expensive, best results) */
-    qualityFirst?: boolean;
-    /** Override specific model */
-    model?: string;
-    /** Override specific provider */
-    provider?: string;
-    /** Custom model options */
-    modelOptions?: AIModelOptions;
-    /** Enable verbose progress reporting */
-    verbose?: boolean;
-    /** Log level for structured logging */
-    logLevel?: 'error' | 'warn' | 'info' | 'debug';
-    /** Project root directory */
-    rootDir?: string;
-    /** Database path override */
-    dbPath?: string;
-    /** Content collection override */
     contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
 /**
@@ -73,7 +48,7 @@ export declare class Shakespeare {
     logger: ShakespeareLogger;
     private verbose;
     /** Configuration used to create this instance */
-    readonly config: ShakespeareConfig;
+    readonly config: ShakespeareConfigV2;
     /** Model options being used for AI operations */
     readonly modelOptions?: AIModelOptions;
     /**
@@ -182,7 +157,7 @@ export declare class Shakespeare {
     /**
      * Create Shakespeare instance with smart defaults and auto-detection
      */
-    static create(config?: ShakespeareConfig): Promise<Shakespeare>;
+    static create(config?: ShakespeareConfigV2): Promise<Shakespeare>;
     /**
      * Create Shakespeare from configuration file or database config
      */
@@ -190,7 +165,7 @@ export declare class Shakespeare {
     /**
      * Convert WorkflowConfig to ShakespeareConfig
      */
-    private static workflowConfigToShakespeareConfig;
+    static workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig, rootDir: string): Promise<ShakespeareConfigV2>;
     /**
      * Save workflow configuration to the content database
      */

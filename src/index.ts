@@ -5,7 +5,8 @@ import { ContentEntry, QualityDimensions, ContentStatus } from '@/types/content'
 import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
 import { GooseAI } from '@/utils/goose';
 import { ShakespeareLogger } from '@/utils/logger';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig, ShakespeareConfig, ShakespeareConfigV1, ShakespeareConfigV2 } from '@/types/interfaces';
+import { normalizeConfig, UnsupportedConfigVersionError, InvalidConfigError } from '@/utils/config';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -29,31 +30,7 @@ export interface ShakespeareOptions {
   contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
 
-/**
- * High-level configuration options for simplified setup
- */
-export interface ShakespeareConfig {
-  /** Use cost-optimized models (cheap, fast) */
-  costOptimized?: boolean;
-  /** Use quality-first models (expensive, best results) */
-  qualityFirst?: boolean;
-  /** Override specific model */
-  model?: string;
-  /** Override specific provider */
-  provider?: string;
-  /** Custom model options */
-  modelOptions?: AIModelOptions;
-  /** Enable verbose progress reporting */
-  verbose?: boolean;
-  /** Log level for structured logging */
-  logLevel?: 'error' | 'warn' | 'info' | 'debug';
-  /** Project root directory */
-  rootDir?: string;
-  /** Database path override */
-  dbPath?: string;
-  /** Content collection override */
-  contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
-}
+// ShakespeareConfig is now imported from types/interfaces.ts
 
 /**
  * Result of a workflow operation
@@ -82,7 +59,7 @@ export class Shakespeare {
   private verbose: boolean = false;
   
   /** Configuration used to create this instance */
-  public readonly config: ShakespeareConfig;
+  public readonly config: ShakespeareConfigV2;
   
   /** Model options being used for AI operations */
   public readonly modelOptions?: AIModelOptions;
@@ -104,6 +81,7 @@ export class Shakespeare {
     
     // Store configuration for public access
     this.config = {
+      version: 2,
       rootDir,
       dbPath,
       contentCollection: options.contentCollection,
@@ -798,7 +776,7 @@ export class Shakespeare {
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
    */
-  static async create(config: ShakespeareConfig = {}): Promise<Shakespeare> {
+  static async create(config: ShakespeareConfigV2 = { version: 2 }): Promise<Shakespeare> {
     const rootDir = config.rootDir || process.cwd();
     const dbPath = config.dbPath;
     
@@ -867,12 +845,19 @@ export class Shakespeare {
             config = configModule.default || configModule;
           }
           
-          const shakespeare = await Shakespeare.create(config);
-          // Ensure verbose setting is applied if specified in config
-          if (config.verbose !== undefined) {
-            shakespeare.setVerbose(config.verbose);
+          try {
+            // Normalize configuration using versioning system
+            const normalizedConfig = normalizeConfig(config, rootDir);
+            const shakespeare = await Shakespeare.create(normalizedConfig);
+            return shakespeare;
+          } catch (error) {
+            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+              // Provide helpful error messages for configuration issues
+              new ShakespeareLogger().error(`Failed to load config from ${configFile}: ${error.message}`);
+              throw error;
+            }
+            throw error;
           }
-          return shakespeare;
         }
       } catch (error) {
         new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
@@ -885,14 +870,18 @@ export class Shakespeare {
       if (existsSync(dbPath)) {
         const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
         if (db.config) {
-          // Convert WorkflowConfig to ShakespeareConfig
-          const shakespeareConfig = await Shakespeare.workflowConfigToShakespeareConfig(db.config, rootDir);
-          const shakespeare = await Shakespeare.create(shakespeareConfig);
-          // Ensure verbose setting from database config is applied
-          if (shakespeareConfig.verbose !== undefined) {
-            shakespeare.setVerbose(shakespeareConfig.verbose);
+          try {
+            // Normalize database configuration using versioning system
+            const normalizedConfig = normalizeConfig(db.config, rootDir);
+            const shakespeare = await Shakespeare.create(normalizedConfig);
+            return shakespeare;
+          } catch (error) {
+            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+              new ShakespeareLogger().error(`Failed to load config from database: ${error.message}`);
+              throw error;
+            }
+            throw error;
           }
-          return shakespeare;
         }
       }
     } catch (error) {
@@ -906,10 +895,12 @@ export class Shakespeare {
   /**
    * Convert WorkflowConfig to ShakespeareConfig
    */
-  private static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig, rootDir: string): Promise<ShakespeareConfig> {
-    const config: ShakespeareConfig = {
+  static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig, rootDir: string): Promise<ShakespeareConfigV2> {
+    const config: ShakespeareConfigV2 = {
+      version: 2,
       rootDir,
-      verbose: workflowConfig.verbose
+      verbose: workflowConfig.verbose,
+      logLevel: workflowConfig.logLevel
     };
 
     // Set content collection if specified
@@ -1019,7 +1010,7 @@ async function detectProjectType(rootDir: string): Promise<keyof typeof CONTENT_
 /**
  * Get model options based on optimization preference
  */
-function getOptimizedModelOptions(config: ShakespeareConfig): AIModelOptions | undefined {
+function getOptimizedModelOptions(config: ShakespeareConfigV2): AIModelOptions | undefined {
   if (config.modelOptions) return config.modelOptions;
   
   if (config.model || config.provider) {
