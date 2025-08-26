@@ -18,12 +18,55 @@ export interface ShakespeareOptions {
     /** Content collection configuration */
     contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
+/**
+ * High-level configuration options for simplified setup
+ */
+export interface ShakespeareConfig {
+    /** Use cost-optimized models (cheap, fast) */
+    costOptimized?: boolean;
+    /** Use quality-first models (expensive, best results) */
+    qualityFirst?: boolean;
+    /** Override specific model */
+    model?: string;
+    /** Override specific provider */
+    provider?: string;
+    /** Custom model options */
+    modelOptions?: AIModelOptions;
+    /** Enable verbose progress reporting */
+    verbose?: boolean;
+    /** Project root directory */
+    rootDir?: string;
+    /** Database path override */
+    dbPath?: string;
+    /** Content collection override */
+    contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
+}
+/**
+ * Result of a workflow operation
+ */
+export interface WorkflowResult {
+    /** Successfully processed items */
+    successful: string[];
+    /** Failed items with error messages */
+    failed: {
+        path: string;
+        error: string;
+    }[];
+    /** Summary statistics */
+    summary: {
+        total: number;
+        succeeded: number;
+        failed: number;
+        duration: number;
+    };
+}
 export declare class Shakespeare {
     private scanner;
     private db;
     private ai;
     private rootDir;
     private dbPath;
+    private verbose;
     constructor(rootDir?: string, dbPath?: string, options?: ShakespeareOptions);
     /**
      * Initialize the system
@@ -62,13 +105,62 @@ export declare class Shakespeare {
      * Determine content status based on scores
      */
     private determineStatus;
+    /**
+     * Set verbose logging for progress reporting
+     */
+    setVerbose(verbose: boolean): void;
+    /**
+     * Log message if verbose mode is enabled
+     */
+    private log;
+    /**
+     * Discover content and provide detailed reporting
+     */
+    discoverAndReport(): Promise<WorkflowResult>;
+    /**
+     * Review all content that needs review
+     */
+    reviewAll(): Promise<WorkflowResult>;
+    /**
+     * Improve the worst-scoring content
+     */
+    improveWorst(count?: number): Promise<WorkflowResult>;
+    /**
+     * Run the complete workflow: discover -> review -> improve
+     */
+    runFullWorkflow(options?: {
+        improveCount?: number;
+    }): Promise<{
+        discovery: WorkflowResult;
+        review: WorkflowResult;
+        improvement: WorkflowResult;
+    }>;
+    /**
+     * Get content health status dashboard
+     */
+    getStatus(): Promise<{
+        totalFiles: number;
+        needsReview: number;
+        needsImprovement: number;
+        meetsTargets: number;
+        averageScore: number;
+        worstScoring: string | null;
+    }>;
+    /**
+     * Create Shakespeare instance with smart defaults and auto-detection
+     */
+    static create(config?: ShakespeareConfig): Shakespeare;
+    /**
+     * Create Shakespeare from configuration file
+     */
+    static fromConfig(configPath?: string): Promise<Shakespeare>;
 }
 /**
  * Factory function for creating Shakespeare instances
  */
 export declare function createShakespeare(rootDir?: string, dbPath?: string, options?: ShakespeareOptions): Shakespeare;
 /**
- * Convenience factory functions for different frameworks
+ * Legacy factory functions (maintained for backward compatibility)
  */
 export declare const ShakespeareFactory: {
     /** Create Shakespeare for Astro projects with content collections */

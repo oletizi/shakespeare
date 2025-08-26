@@ -28,12 +28,54 @@ export interface ShakespeareOptions {
   contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
 
+/**
+ * High-level configuration options for simplified setup
+ */
+export interface ShakespeareConfig {
+  /** Use cost-optimized models (cheap, fast) */
+  costOptimized?: boolean;
+  /** Use quality-first models (expensive, best results) */
+  qualityFirst?: boolean;
+  /** Override specific model */
+  model?: string;
+  /** Override specific provider */
+  provider?: string;
+  /** Custom model options */
+  modelOptions?: AIModelOptions;
+  /** Enable verbose progress reporting */
+  verbose?: boolean;
+  /** Project root directory */
+  rootDir?: string;
+  /** Database path override */
+  dbPath?: string;
+  /** Content collection override */
+  contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
+}
+
+/**
+ * Result of a workflow operation
+ */
+export interface WorkflowResult {
+  /** Successfully processed items */
+  successful: string[];
+  /** Failed items with error messages */
+  failed: { path: string; error: string }[];
+  /** Summary statistics */
+  summary: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    duration: number;
+  };
+}
+
 export class Shakespeare {
   private scanner: IContentScanner;
   private db: IContentDatabase;
   private ai: IContentScorer;
   private rootDir: string;
   private dbPath: string;
+  private verbose: boolean = false;
 
   constructor(rootDir: string = process.cwd(), dbPath?: string, options: ShakespeareOptions = {}) {
     this.rootDir = rootDir;
@@ -310,6 +352,299 @@ export class Shakespeare {
     if (avgScore >= 7.0) return 'needs_improvement';
     return 'needs_review';
   }
+
+  /**
+   * Set verbose logging for progress reporting
+   */
+  setVerbose(verbose: boolean): void {
+    this.verbose = verbose;
+  }
+
+  /**
+   * Log message if verbose mode is enabled
+   */
+  private log(message: string): void {
+    if (this.verbose) {
+      console.log(message);
+    }
+  }
+
+  // ========== HIGH-LEVEL WORKFLOW METHODS ==========
+
+  /**
+   * Discover content and provide detailed reporting
+   */
+  async discoverAndReport(): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log('🔍 Starting content discovery...');
+    
+    try {
+      const discovered = await this.discoverContent();
+      const duration = Date.now() - startTime;
+      
+      this.log(`📊 Discovery completed: ${discovered.length} files found`);
+      if (discovered.length > 0) {
+        discovered.forEach(file => this.log(`  📄 ${path.basename(file)}`));
+      }
+      
+      return {
+        successful: discovered,
+        failed: [],
+        summary: {
+          total: discovered.length,
+          succeeded: discovered.length,
+          failed: 0,
+          duration
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.log(`❌ Discovery failed: ${errorMessage}`);
+      
+      return {
+        successful: [],
+        failed: [{ path: 'discovery', error: errorMessage }],
+        summary: {
+          total: 0,
+          succeeded: 0,
+          failed: 1,
+          duration: Date.now() - startTime
+        }
+      };
+    }
+  }
+
+  /**
+   * Review all content that needs review
+   */
+  async reviewAll(): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log('📊 Starting content review...');
+    
+    await this.initialize();
+    const database = this.db.getData();
+    const contentNeedingReview = Object.entries(database.entries)
+      .filter(([, entry]) => entry.status === 'needs_review')
+      .map(([path]) => path);
+
+    if (contentNeedingReview.length === 0) {
+      this.log('✅ No content needs review');
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+
+    this.log(`📝 Found ${contentNeedingReview.length} files needing review`);
+
+    const successful: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+
+    for (let i = 0; i < contentNeedingReview.length; i++) {
+      const filePath = contentNeedingReview[i];
+      try {
+        this.log(`📊 Reviewing ${path.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`);
+        await this.reviewContent(filePath);
+        successful.push(filePath);
+        this.log(`✅ Reviewed: ${path.basename(filePath)}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failed.push({ path: filePath, error: errorMessage });
+        this.log(`❌ Failed to review ${path.basename(filePath)}: ${errorMessage}`);
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    this.log(`🎉 Review completed: ${successful.length} succeeded, ${failed.length} failed`);
+
+    return {
+      successful,
+      failed,
+      summary: {
+        total: contentNeedingReview.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+
+  /**
+   * Improve the worst-scoring content
+   */
+  async improveWorst(count: number = 1): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`🚀 Starting improvement of ${count} worst-scoring content...`);
+    
+    await this.initialize();
+    const successful: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+
+    for (let i = 0; i < count; i++) {
+      try {
+        const worstPath = this.getWorstScoringContent();
+        if (!worstPath) {
+          this.log('✅ No content needs improvement');
+          break;
+        }
+
+        this.log(`📝 Improving ${path.basename(worstPath)} (${i + 1}/${count})`);
+        await this.improveContent(worstPath);
+        successful.push(worstPath);
+        this.log(`✅ Improved: ${path.basename(worstPath)}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failed.push({ path: 'improvement', error: errorMessage });
+        this.log(`❌ Improvement failed: ${errorMessage}`);
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    this.log(`🎉 Improvement completed: ${successful.length} succeeded, ${failed.length} failed`);
+
+    return {
+      successful,
+      failed,
+      summary: {
+        total: count,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+
+  /**
+   * Run the complete workflow: discover -> review -> improve
+   */
+  async runFullWorkflow(options: { improveCount?: number } = {}): Promise<{
+    discovery: WorkflowResult;
+    review: WorkflowResult;
+    improvement: WorkflowResult;
+  }> {
+    this.log('🎭 Starting complete Shakespeare workflow...');
+
+    const discovery = await this.discoverAndReport();
+    const review = await this.reviewAll();
+    const improvement = await this.improveWorst(options.improveCount || 1);
+
+    this.log('🎉 Complete workflow finished!');
+
+    return {
+      discovery,
+      review,
+      improvement
+    };
+  }
+
+  /**
+   * Get content health status dashboard
+   */
+  async getStatus(): Promise<{
+    totalFiles: number;
+    needsReview: number;
+    needsImprovement: number;
+    meetsTargets: number;
+    averageScore: number;
+    worstScoring: string | null;
+  }> {
+    await this.initialize();
+    const database = this.db.getData();
+    const entries = Object.entries(database.entries);
+
+    const needsReview = entries.filter(([, entry]) => entry.status === 'needs_review').length;
+    const needsImprovement = entries.filter(([, entry]) => entry.status === 'needs_improvement').length;
+    const meetsTargets = entries.filter(([, entry]) => entry.status === 'meets_targets').length;
+
+    const scores = entries.map(([, entry]) => {
+      const scores = Object.values(entry.currentScores || {});
+      return scores.reduce((a, b) => a + b, 0) / scores.length;
+    }).filter(score => !isNaN(score));
+
+    const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const worstScoring = this.getWorstScoringContent();
+
+    return {
+      totalFiles: entries.length,
+      needsReview,
+      needsImprovement,
+      meetsTargets,
+      averageScore: Math.round(averageScore * 10) / 10,
+      worstScoring
+    };
+  }
+
+  // ========== STATIC FACTORY METHODS ==========
+
+  /**
+   * Create Shakespeare instance with smart defaults and auto-detection
+   */
+  static create(config: ShakespeareConfig = {}): Shakespeare {
+    const rootDir = config.rootDir || process.cwd();
+    const dbPath = config.dbPath;
+    
+    // Auto-detect project type if not specified
+    const detectedType = detectProjectType(rootDir);
+    const contentCollection = config.contentCollection || detectedType;
+    
+    // Get optimized model options
+    const defaultModelOptions = getOptimizedModelOptions(config);
+    
+    const options: ShakespeareOptions = {
+      contentCollection,
+      defaultModelOptions
+    };
+    
+    const shakespeare = new Shakespeare(rootDir, dbPath, options);
+    
+    if (config.verbose) {
+      shakespeare.setVerbose(true);
+    }
+    
+    return shakespeare;
+  }
+
+  /**
+   * Create Shakespeare from configuration file
+   */
+  static async fromConfig(configPath?: string): Promise<Shakespeare> {
+    const path = require('path');
+    const rootDir = process.cwd();
+    
+    // Try to find config file
+    const possiblePaths = [
+      configPath,
+      path.join(rootDir, 'shakespeare.config.js'),
+      path.join(rootDir, 'shakespeare.config.mjs'),
+      path.join(rootDir, 'shakespeare.config.json'),
+      path.join(rootDir, '.shakespeare.json')
+    ].filter(Boolean);
+    
+    for (const configFile of possiblePaths) {
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(configFile!)) {
+          let config: ShakespeareConfig;
+          
+          if (configFile!.endsWith('.json')) {
+            config = JSON.parse(fs.readFileSync(configFile!, 'utf-8'));
+          } else {
+            // Dynamic import for JS/MJS files
+            const configModule = await import(configFile!);
+            config = configModule.default || configModule;
+          }
+          
+          return Shakespeare.create(config);
+        }
+      } catch (error) {
+        console.warn(`Failed to load config from ${configFile}: ${error}`);
+      }
+    }
+    
+    // Fallback to default configuration
+    return Shakespeare.create();
+  }
 }
 
 /**
@@ -320,7 +655,70 @@ export function createShakespeare(rootDir?: string, dbPath?: string, options?: S
 }
 
 /**
- * Convenience factory functions for different frameworks
+ * Auto-detect project type based on file structure
+ */
+function detectProjectType(rootDir: string): keyof typeof CONTENT_COLLECTIONS | 'custom' {
+  const fs = require('fs');
+  const path = require('path');
+  
+  try {
+    // Check for Astro
+    if (fs.existsSync(path.join(rootDir, 'astro.config.mjs')) || 
+        fs.existsSync(path.join(rootDir, 'astro.config.js')) ||
+        fs.existsSync(path.join(rootDir, 'src/content'))) {
+      return 'astro';
+    }
+    
+    // Check for Next.js
+    if (fs.existsSync(path.join(rootDir, 'next.config.js')) || 
+        fs.existsSync(path.join(rootDir, 'next.config.mjs'))) {
+      return 'nextjs';
+    }
+    
+    // Check for Gatsby
+    if (fs.existsSync(path.join(rootDir, 'gatsby-config.js')) || 
+        fs.existsSync(path.join(rootDir, 'gatsby-config.ts'))) {
+      return 'gatsby';
+    }
+    
+    return 'custom';
+  } catch {
+    return 'custom';
+  }
+}
+
+/**
+ * Get model options based on optimization preference
+ */
+function getOptimizedModelOptions(config: ShakespeareConfig): AIModelOptions | undefined {
+  if (config.modelOptions) return config.modelOptions;
+  
+  if (config.model || config.provider) {
+    return {
+      provider: config.provider,
+      model: config.model
+    };
+  }
+  
+  if (config.costOptimized) {
+    return {
+      provider: 'google',
+      model: 'gemini-1.5-flash'
+    };
+  }
+  
+  if (config.qualityFirst) {
+    return {
+      provider: 'anthropic', 
+      model: 'claude-3-5-sonnet'
+    };
+  }
+  
+  return undefined;
+}
+
+/**
+ * Legacy factory functions (maintained for backward compatibility)
  */
 export const ShakespeareFactory = {
   /** Create Shakespeare for Astro projects with content collections */

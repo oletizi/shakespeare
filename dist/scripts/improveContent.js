@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 
 // src/utils/scanner.ts
 import fs from "fs/promises";
@@ -707,8 +713,9 @@ var AIScorer = class {
 // src/index.ts
 import path3 from "path";
 import fs3 from "fs/promises";
-var Shakespeare = class {
+var Shakespeare = class _Shakespeare {
   constructor(rootDir = process.cwd(), dbPath, options = {}) {
+    this.verbose = false;
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
     this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
@@ -919,7 +926,277 @@ var Shakespeare = class {
     if (avgScore >= 7) return "needs_improvement";
     return "needs_review";
   }
+  /**
+   * Set verbose logging for progress reporting
+   */
+  setVerbose(verbose) {
+    this.verbose = verbose;
+  }
+  /**
+   * Log message if verbose mode is enabled
+   */
+  log(message) {
+    if (this.verbose) {
+      console.log(message);
+    }
+  }
+  // ========== HIGH-LEVEL WORKFLOW METHODS ==========
+  /**
+   * Discover content and provide detailed reporting
+   */
+  async discoverAndReport() {
+    const startTime = Date.now();
+    this.log("\u{1F50D} Starting content discovery...");
+    try {
+      const discovered = await this.discoverContent();
+      const duration = Date.now() - startTime;
+      this.log(`\u{1F4CA} Discovery completed: ${discovered.length} files found`);
+      if (discovered.length > 0) {
+        discovered.forEach((file) => this.log(`  \u{1F4C4} ${path3.basename(file)}`));
+      }
+      return {
+        successful: discovered,
+        failed: [],
+        summary: {
+          total: discovered.length,
+          succeeded: discovered.length,
+          failed: 0,
+          duration
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.log(`\u274C Discovery failed: ${errorMessage}`);
+      return {
+        successful: [],
+        failed: [{ path: "discovery", error: errorMessage }],
+        summary: {
+          total: 0,
+          succeeded: 0,
+          failed: 1,
+          duration: Date.now() - startTime
+        }
+      };
+    }
+  }
+  /**
+   * Review all content that needs review
+   */
+  async reviewAll() {
+    const startTime = Date.now();
+    this.log("\u{1F4CA} Starting content review...");
+    await this.initialize();
+    const database = this.db.getData();
+    const contentNeedingReview = Object.entries(database.entries).filter(([, entry]) => entry.status === "needs_review").map(([path5]) => path5);
+    if (contentNeedingReview.length === 0) {
+      this.log("\u2705 No content needs review");
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    this.log(`\u{1F4DD} Found ${contentNeedingReview.length} files needing review`);
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < contentNeedingReview.length; i++) {
+      const filePath = contentNeedingReview[i];
+      try {
+        this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`);
+        await this.reviewContent(filePath);
+        successful.push(filePath);
+        this.log(`\u2705 Reviewed: ${path3.basename(filePath)}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failed.push({ path: filePath, error: errorMessage });
+        this.log(`\u274C Failed to review ${path3.basename(filePath)}: ${errorMessage}`);
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Review completed: ${successful.length} succeeded, ${failed.length} failed`);
+    return {
+      successful,
+      failed,
+      summary: {
+        total: contentNeedingReview.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Improve the worst-scoring content
+   */
+  async improveWorst(count = 1) {
+    const startTime = Date.now();
+    this.log(`\u{1F680} Starting improvement of ${count} worst-scoring content...`);
+    await this.initialize();
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < count; i++) {
+      try {
+        const worstPath = this.getWorstScoringContent();
+        if (!worstPath) {
+          this.log("\u2705 No content needs improvement");
+          break;
+        }
+        this.log(`\u{1F4DD} Improving ${path3.basename(worstPath)} (${i + 1}/${count})`);
+        await this.improveContent(worstPath);
+        successful.push(worstPath);
+        this.log(`\u2705 Improved: ${path3.basename(worstPath)}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failed.push({ path: "improvement", error: errorMessage });
+        this.log(`\u274C Improvement failed: ${errorMessage}`);
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Improvement completed: ${successful.length} succeeded, ${failed.length} failed`);
+    return {
+      successful,
+      failed,
+      summary: {
+        total: count,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Run the complete workflow: discover -> review -> improve
+   */
+  async runFullWorkflow(options = {}) {
+    this.log("\u{1F3AD} Starting complete Shakespeare workflow...");
+    const discovery = await this.discoverAndReport();
+    const review = await this.reviewAll();
+    const improvement = await this.improveWorst(options.improveCount || 1);
+    this.log("\u{1F389} Complete workflow finished!");
+    return {
+      discovery,
+      review,
+      improvement
+    };
+  }
+  /**
+   * Get content health status dashboard
+   */
+  async getStatus() {
+    await this.initialize();
+    const database = this.db.getData();
+    const entries = Object.entries(database.entries);
+    const needsReview = entries.filter(([, entry]) => entry.status === "needs_review").length;
+    const needsImprovement = entries.filter(([, entry]) => entry.status === "needs_improvement").length;
+    const meetsTargets = entries.filter(([, entry]) => entry.status === "meets_targets").length;
+    const scores = entries.map(([, entry]) => {
+      const scores2 = Object.values(entry.currentScores || {});
+      return scores2.reduce((a, b) => a + b, 0) / scores2.length;
+    }).filter((score) => !isNaN(score));
+    const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const worstScoring = this.getWorstScoringContent();
+    return {
+      totalFiles: entries.length,
+      needsReview,
+      needsImprovement,
+      meetsTargets,
+      averageScore: Math.round(averageScore * 10) / 10,
+      worstScoring
+    };
+  }
+  // ========== STATIC FACTORY METHODS ==========
+  /**
+   * Create Shakespeare instance with smart defaults and auto-detection
+   */
+  static create(config = {}) {
+    const rootDir = config.rootDir || process.cwd();
+    const dbPath = config.dbPath;
+    const detectedType = detectProjectType(rootDir);
+    const contentCollection = config.contentCollection || detectedType;
+    const defaultModelOptions = getOptimizedModelOptions(config);
+    const options = {
+      contentCollection,
+      defaultModelOptions
+    };
+    const shakespeare = new _Shakespeare(rootDir, dbPath, options);
+    if (config.verbose) {
+      shakespeare.setVerbose(true);
+    }
+    return shakespeare;
+  }
+  /**
+   * Create Shakespeare from configuration file
+   */
+  static async fromConfig(configPath) {
+    const path5 = __require("path");
+    const rootDir = process.cwd();
+    const possiblePaths = [
+      configPath,
+      path5.join(rootDir, "shakespeare.config.js"),
+      path5.join(rootDir, "shakespeare.config.mjs"),
+      path5.join(rootDir, "shakespeare.config.json"),
+      path5.join(rootDir, ".shakespeare.json")
+    ].filter(Boolean);
+    for (const configFile of possiblePaths) {
+      try {
+        const fs4 = __require("fs");
+        if (fs4.existsSync(configFile)) {
+          let config;
+          if (configFile.endsWith(".json")) {
+            config = JSON.parse(fs4.readFileSync(configFile, "utf-8"));
+          } else {
+            const configModule = await import(configFile);
+            config = configModule.default || configModule;
+          }
+          return _Shakespeare.create(config);
+        }
+      } catch (error) {
+        console.warn(`Failed to load config from ${configFile}: ${error}`);
+      }
+    }
+    return _Shakespeare.create();
+  }
 };
+function detectProjectType(rootDir) {
+  const fs4 = __require("fs");
+  const path5 = __require("path");
+  try {
+    if (fs4.existsSync(path5.join(rootDir, "astro.config.mjs")) || fs4.existsSync(path5.join(rootDir, "astro.config.js")) || fs4.existsSync(path5.join(rootDir, "src/content"))) {
+      return "astro";
+    }
+    if (fs4.existsSync(path5.join(rootDir, "next.config.js")) || fs4.existsSync(path5.join(rootDir, "next.config.mjs"))) {
+      return "nextjs";
+    }
+    if (fs4.existsSync(path5.join(rootDir, "gatsby-config.js")) || fs4.existsSync(path5.join(rootDir, "gatsby-config.ts"))) {
+      return "gatsby";
+    }
+    return "custom";
+  } catch {
+    return "custom";
+  }
+}
+function getOptimizedModelOptions(config) {
+  if (config.modelOptions) return config.modelOptions;
+  if (config.model || config.provider) {
+    return {
+      provider: config.provider,
+      model: config.model
+    };
+  }
+  if (config.costOptimized) {
+    return {
+      provider: "google",
+      model: "gemini-1.5-flash"
+    };
+  }
+  if (config.qualityFirst) {
+    return {
+      provider: "anthropic",
+      model: "claude-3-5-sonnet"
+    };
+  }
+  return void 0;
+}
 
 // src/scripts/improveContent.ts
 import path4 from "path";
