@@ -286,21 +286,23 @@ This package is configured for publishing to npm with industry-standard best pra
 
 **Patch Release (bug fixes):**
 ```bash
-npm version patch  # 1.0.0 → 1.0.1
-npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+npm run publish:patch  # 1.0.0 → 1.0.1 + publish
+# Or manually: npm version patch && npm publish --otp=<code>
 ```
 
 **Minor Release (new features):**
 ```bash
-npm version minor  # 1.0.0 → 1.1.0  
-npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+npm run publish:minor  # 1.0.0 → 1.1.0 + publish
+# Or manually: npm version minor && npm publish --otp=<code>
 ```
 
 **Major Release (breaking changes):**
 ```bash
-npm version major  # 1.0.0 → 2.0.0
-npm publish --otp=<6-digit-code>  # Include OTP if 2FA enabled
+npm run publish:major  # 1.0.0 → 2.0.0 + publish
+# Or manually: npm version major && npm publish --otp=<code>
 ```
+
+**Note:** If you have 2FA enabled, you'll be prompted for your OTP code during the publish step.
 
 #### Automated Publishing Workflow
 
