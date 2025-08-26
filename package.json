@@ -1,5 +1,5 @@
 {
-  "name": "shakespeare",
+  "name": "@oletizi/shakespeare",
   "version": "1.0.0",
   "description": "AI-driven content review and improvement system",
   "type": "module",
