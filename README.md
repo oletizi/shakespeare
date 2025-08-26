@@ -178,6 +178,29 @@ Shakespeare creates a `.shakespeare/` directory in your project with:
 - `content-db.json`: Content analysis database with scores and history
 - Improved content files with `.improved.md` extension
 
+### Database Portability
+
+The content database stores file paths as **relative paths** from the database directory, making it portable across different systems and project locations. This means you can:
+
+- Move your project to different directories
+- Share the database across team members  
+- Deploy to different environments
+- Archive and restore project state
+
+Example database structure:
+```json
+{
+  "lastUpdated": "2025-08-26T06:15:31.708Z",
+  "entries": {
+    "../src/content/blog/post1.md": {
+      "path": "../src/content/blog/post1.md",
+      "currentScores": { ... },
+      "status": "needs_review"
+    }
+  }
+}
+```
+
 Add to `.gitignore`:
 ```gitignore
 .shakespeare/
