@@ -3,11 +3,12 @@ import { ContentDatabaseHandler } from '@/utils/database';
 import { DEFAULT_TARGET_SCORES } from '@/utils/constants';
 import { ContentEntry, QualityDimensions } from '@/types/content';
 import { AIScorer, AIContentAnalysis } from '@/utils/ai';
-import { IContentScanner, IContentDatabase, IContentScorer } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS } from '@/types/interfaces';
 import path from 'path';
 import fs from 'fs/promises';
 
 export * from '@/types/content';
+export * from '@/types/interfaces';
 
 /**
  * Options for Shakespeare constructor
@@ -16,24 +17,28 @@ export interface ShakespeareOptions {
   scanner?: IContentScanner;
   database?: IContentDatabase;
   ai?: IContentScorer;
+  /** Content collection configuration */
+  contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
 
 export class Shakespeare {
   private scanner: IContentScanner;
   private db: IContentDatabase;
   private ai: IContentScorer;
-  private contentDir: string;
+  private rootDir: string;
   private dbPath: string;
 
-  constructor(contentDir: string, dbPath: string, options: ShakespeareOptions = {}) {
-    this.contentDir = contentDir;
-    this.dbPath = dbPath;
-    this.scanner = options.scanner ?? new ContentScanner(contentDir);
-    this.db = options.database ?? new ContentDatabaseHandler(dbPath);
+  constructor(rootDir: string = process.cwd(), dbPath?: string, options: ShakespeareOptions = {}) {
+    this.rootDir = rootDir;
+    this.dbPath = dbPath ?? path.join(rootDir, '.shakespeare', 'content-db.json');
+    
+    // Create scanner with content collection configuration
+    this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
+    this.db = options.database ?? new ContentDatabaseHandler(this.dbPath);
     this.ai = options.ai ?? new AIScorer();
 
     // Ensure database directory exists
-    const dbDir = path.dirname(dbPath);
+    const dbDir = path.dirname(this.dbPath);
     fs.mkdir(dbDir, { recursive: true }).catch(console.error);
   }
 
@@ -164,6 +169,27 @@ export class Shakespeare {
 /**
  * Factory function for creating Shakespeare instances
  */
-export function createShakespeare(contentDir: string, dbPath: string, options?: ShakespeareOptions): Shakespeare {
-  return new Shakespeare(contentDir, dbPath, options);
+export function createShakespeare(rootDir?: string, dbPath?: string, options?: ShakespeareOptions): Shakespeare {
+  return new Shakespeare(rootDir, dbPath, options);
 }
+
+/**
+ * Convenience factory functions for different frameworks
+ */
+export const ShakespeareFactory = {
+  /** Create Shakespeare for Astro projects with content collections */
+  forAstro: (rootDir?: string, dbPath?: string, options: ShakespeareOptions = {}) => 
+    new Shakespeare(rootDir, dbPath, { ...options, contentCollection: 'astro' }),
+  
+  /** Create Shakespeare for Next.js projects */
+  forNextJS: (rootDir?: string, dbPath?: string, options: ShakespeareOptions = {}) =>
+    new Shakespeare(rootDir, dbPath, { ...options, contentCollection: 'nextjs' }),
+  
+  /** Create Shakespeare for Gatsby projects */
+  forGatsby: (rootDir?: string, dbPath?: string, options: ShakespeareOptions = {}) =>
+    new Shakespeare(rootDir, dbPath, { ...options, contentCollection: 'gatsby' }),
+  
+  /** Create Shakespeare with custom content collection configuration */
+  forCustom: (contentConfig: ContentCollectionConfig, rootDir?: string, dbPath?: string, options: ShakespeareOptions = {}) =>
+    new Shakespeare(rootDir, dbPath, { ...options, contentCollection: contentConfig })
+};
