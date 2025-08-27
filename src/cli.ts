@@ -153,7 +153,7 @@ async function main() {
 
 // Run CLI if this file is executed directly
 // Note: In ES modules, we can't use require.main, so we check process.argv[1]
-const isMainModule = process.argv[1]?.endsWith('/cli.js') || process.argv[1]?.endsWith('\\cli.js');
+const isMainModule = process.argv[1]?.includes('cli.js');
 if (isMainModule) {
   main().catch(console.error);
 }

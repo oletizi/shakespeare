@@ -83,6 +83,10 @@ async function buildAll() {
     // Generate TypeScript declarations using tsc
     execSync('tsc --emitDeclarationOnly', { stdio: 'inherit' });
 
+    // Make CLI executable
+    console.log('🔧 Setting CLI permissions...');
+    execSync('chmod +x dist/cli.js', { stdio: 'inherit' });
+
     console.log('✅ Build completed successfully');
   } catch (error) {
     console.error('❌ Build failed:', error);
