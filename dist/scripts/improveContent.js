@@ -838,108 +838,12 @@ var AIScorer = class {
 };
 
 // src/utils/config.ts
-var UnsupportedConfigVersionError = class extends Error {
-  constructor(version) {
-    super(`Unsupported configuration version: ${version}. Supported versions: 1, 2`);
-    this.name = "UnsupportedConfigVersionError";
-  }
-};
 var InvalidConfigError = class extends Error {
   constructor(message) {
-    super(`Invalid configuration: ${message}`);
+    super(message);
     this.name = "InvalidConfigError";
   }
 };
-function detectConfigVersion(config) {
-  if (typeof config === "object" && config !== null) {
-    if ("version" in config && typeof config.version === "number") {
-      return config.version;
-    }
-    if ("models" in config || "workflows" in config) {
-      return 1;
-    }
-    if ("costOptimized" in config || "qualityFirst" in config) {
-      return 2;
-    }
-  }
-  return 2;
-}
-function validateConfig(config, version) {
-  if (!config || typeof config !== "object") {
-    throw new InvalidConfigError("Configuration must be an object");
-  }
-  switch (version) {
-    case 1:
-      validateV1Config(config);
-      break;
-    case 2:
-      validateV2Config(config);
-      break;
-    default:
-      throw new UnsupportedConfigVersionError(version);
-  }
-}
-function validateV1Config(config) {
-  const v2Props = ["costOptimized", "qualityFirst", "modelOptions"];
-  const hasV2Props = v2Props.some((prop) => prop in config);
-  if (hasV2Props) {
-    throw new InvalidConfigError("V1 configuration contains V2-specific properties. Please use version 2 or migrate the configuration.");
-  }
-}
-function validateV2Config(config) {
-  const v1OnlyProps = ["workflows"];
-  const hasV1OnlyProps = v1OnlyProps.some((prop) => prop in config);
-  if (hasV1OnlyProps) {
-    throw new InvalidConfigError("V2 configuration contains V1-specific properties (workflows). Please use version 1 or migrate to the V2 structure.");
-  }
-}
-function migrateV1ToV2(v1Config) {
-  const v2Config = {
-    version: 2,
-    verbose: v1Config.verbose,
-    logLevel: v1Config.logLevel,
-    contentCollection: v1Config.contentCollection
-  };
-  if (v1Config.models) {
-    v2Config.models = v1Config.models;
-  }
-  if (v1Config.providers) {
-    v2Config.providers = v1Config.providers;
-  }
-  if (v1Config.models?.review) {
-    v2Config.model = v1Config.models.review;
-  }
-  if (v1Config.providers?.review) {
-    v2Config.provider = v1Config.providers.review;
-  }
-  if (v2Config.provider || v2Config.model) {
-    v2Config.modelOptions = {
-      provider: v2Config.provider,
-      model: v2Config.model
-    };
-  }
-  return v2Config;
-}
-function normalizeConfig(rawConfig) {
-  const version = detectConfigVersion(rawConfig);
-  validateConfig(rawConfig, version);
-  let config;
-  switch (version) {
-    case 1: {
-      const v1Config = { version: 1, ...rawConfig };
-      config = migrateV1ToV2(v1Config);
-      console.warn('\u26A0\uFE0F  Loading legacy V1 configuration format. Consider migrating to V2 format by adding "version": 2 and updating the structure.');
-      break;
-    }
-    case 2: {
-      config = { version: 2, ...rawConfig };
-      break;
-    }
-    default:
-      throw new UnsupportedConfigVersionError(version);
-  }
-  return config;
-}
 
 // src/index.ts
 import path3 from "path";
@@ -951,7 +855,6 @@ var Shakespeare = class _Shakespeare {
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
     this.logger = new ShakespeareLogger();
     this.config = {
-      version: 2,
       dbPath,
       contentCollection: options.contentCollection,
       verbose: false,
@@ -1746,7 +1649,7 @@ var Shakespeare = class _Shakespeare {
             config = configModule.default || configModule;
           }
           try {
-            const normalizedConfig = normalizeConfig(config);
+            const normalizedConfig = config;
             let configDir = dirname(resolve(configFile));
             if (configFile.includes(".shakespeare")) {
               configDir = dirname(configDir);
@@ -1757,7 +1660,7 @@ var Shakespeare = class _Shakespeare {
             const shakespeare = await _Shakespeare.create(configDir, normalizedConfig);
             return shakespeare;
           } catch (error) {
-            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+            if (error instanceof InvalidConfigError) {
               new ShakespeareLogger().error(`Failed to load config from ${configFile}: ${error.message}`);
               throw error;
             }
@@ -1765,7 +1668,7 @@ var Shakespeare = class _Shakespeare {
           }
         }
       } catch (error) {
-        if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+        if (error instanceof InvalidConfigError) {
           throw error;
         }
         new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
@@ -1777,11 +1680,11 @@ var Shakespeare = class _Shakespeare {
         const db = JSON.parse(readFileSync(dbPath, "utf-8"));
         if (db.config) {
           try {
-            const normalizedConfig = normalizeConfig(db.config);
+            const normalizedConfig = db.config;
             const shakespeare = await _Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
           } catch (error) {
-            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+            if (error instanceof InvalidConfigError) {
               new ShakespeareLogger().error(`Failed to load config from database: ${error.message}`);
               throw error;
             }
@@ -1795,11 +1698,10 @@ var Shakespeare = class _Shakespeare {
     return await _Shakespeare.create(cwd);
   }
   /**
-   * Convert WorkflowConfig to ShakespeareConfig
+   * Convert ShakespeareConfig to ShakespeareConfig
    */
   static async workflowConfigToShakespeareConfig(workflowConfig) {
     const config = {
-      version: 2,
       verbose: workflowConfig.verbose,
       logLevel: workflowConfig.logLevel
     };
@@ -1807,15 +1709,20 @@ var Shakespeare = class _Shakespeare {
       config.contentCollection = workflowConfig.contentCollection;
     }
     if (workflowConfig.models?.review) {
-      config.model = workflowConfig.models.review;
+      const reviewModel = workflowConfig.models.review;
+      if (typeof reviewModel === "string") {
+        config.model = reviewModel;
+      } else {
+        config.model = reviewModel.model;
+        if (reviewModel.provider) {
+          config.provider = reviewModel.provider;
+        }
+      }
     }
-    if (workflowConfig.providers?.review) {
-      config.provider = workflowConfig.providers.review;
-    }
-    if (config.provider || config.model) {
+    if (config.model) {
       config.modelOptions = {
-        provider: config.provider,
-        model: config.model
+        model: config.model,
+        provider: config.provider
       };
     }
     return config;
@@ -1824,7 +1731,7 @@ var Shakespeare = class _Shakespeare {
   /**
    * Save workflow configuration to the content database
    */
-  async saveWorkflowConfig(workflowConfig) {
+  async saveShakespeareConfig(workflowConfig) {
     await this._db.load();
     const currentData = this._db.getData();
     currentData.config = workflowConfig;
@@ -1834,7 +1741,7 @@ var Shakespeare = class _Shakespeare {
   /**
    * Get current workflow configuration from database
    */
-  async getWorkflowConfig() {
+  async getShakespeareConfig() {
     await this._db.load();
     return this._db.getData().config;
   }
@@ -1855,20 +1762,26 @@ var Shakespeare = class _Shakespeare {
     if (this.config.taskModelOptions?.[workflowType]) {
       return this.config.taskModelOptions[workflowType];
     }
-    const provider = this.config.providers?.[workflowType];
-    const model = this.config.models?.[workflowType];
-    if (provider || model) {
-      return { provider, model };
-    }
-    const workflowConfig = await this.getWorkflowConfig();
-    if (workflowConfig) {
-      const legacyProvider = workflowConfig.providers?.[workflowType];
-      const legacyModel = workflowConfig.models?.[workflowType];
-      if (legacyProvider || legacyModel) {
-        return { provider: legacyProvider, model: legacyModel };
+    const modelConfig = this.config.models?.[workflowType];
+    if (modelConfig) {
+      if (typeof modelConfig === "string") {
+        return { model: modelConfig };
+      } else {
+        return {
+          model: modelConfig.model,
+          provider: modelConfig.provider
+        };
       }
     }
-    return void 0;
+    const defaults = {
+      review: { model: "gpt-4o-mini" },
+      // Fast, cost-effective for scoring
+      improve: { model: "gpt-4o" },
+      // Higher quality for content improvement
+      generate: { model: "gpt-4o" }
+      // Higher quality for content generation
+    };
+    return defaults[workflowType];
   }
 };
 async function detectProjectType(rootDir) {

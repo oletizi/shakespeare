@@ -170,82 +170,9 @@ export interface IContentScorer {
 }
 
 /**
- * Workflow-specific configuration stored in content-db.json
+ * Shakespeare configuration
  */
-/**
- * Version 1 configuration (legacy WorkflowConfig format)
- * @deprecated Use ShakespeareConfigV2 instead
- */
-export interface ShakespeareConfigV1 {
-  version?: 1;
-  /** Content collection type (auto-detected if not specified) */
-  contentCollection?: keyof typeof CONTENT_COLLECTIONS | 'custom';
-  
-  /** Enable verbose logging */
-  verbose?: boolean;
-  
-  /** Log level for structured logging */
-  logLevel?: 'error' | 'warn' | 'info' | 'debug';
-  
-  /** Model configuration for different workflow types */
-  models?: {
-    /** Model for content review/scoring operations */
-    review?: string;
-    /** Model for content improvement operations */
-    improve?: string;
-    /** Model for content generation operations */
-    generate?: string;
-  };
-  
-  /** Provider configuration for different workflow types */
-  providers?: {
-    /** Provider for content review/scoring operations */
-    review?: string;
-    /** Provider for content improvement operations */
-    improve?: string;
-    /** Provider for content generation operations */
-    generate?: string;
-  };
-  
-  /** Workflow-specific settings */
-  workflows?: {
-    discover?: {
-      /** Whether to reset existing entries when discovering */
-      resetExisting?: boolean;
-      /** Whether to automatically initialize database */
-      autoInit?: boolean;
-    };
-    review?: {
-      /** Batch size for review operations */
-      batchSize?: number;
-      /** Whether to estimate costs before running */
-      estimateCosts?: boolean;
-      /** Whether to retry failed operations */
-      retryFailures?: boolean;
-    };
-    improve?: {
-      /** Maximum number of items to improve */
-      maxCount?: number;
-      /** Whether to require review before improvement */
-      requireReviewFirst?: boolean;
-      /** Minimum score threshold to trigger improvement */
-      targetThreshold?: number;
-    };
-    complete?: {
-      /** Number of items to improve in complete workflow */
-      improveCount?: number;
-      /** Whether to run discovery as part of complete workflow */
-      runDiscovery?: boolean;
-    };
-  };
-}
-
-/**
- * Version 2 configuration (current ShakespeareConfig format)
- * This is the preferred configuration format
- */
-export interface ShakespeareConfigV2 {
-  version?: 2;
+export interface ShakespeareConfig {
   /** Use cost-optimized models (cheap, fast) */
   costOptimized?: boolean;
   /** Use quality-first models (expensive, best results) */
@@ -258,21 +185,21 @@ export interface ShakespeareConfigV2 {
   modelOptions?: AIModelOptions;
   /** Task-specific model configuration */
   models?: {
-    /** Model for content review/scoring operations */
-    review?: string;
-    /** Model for content improvement operations */
-    improve?: string;
-    /** Model for content generation operations */
-    generate?: string;
-  };
-  /** Task-specific provider configuration */
-  providers?: {
-    /** Provider for content review/scoring operations */
-    review?: string;
-    /** Provider for content improvement operations */
-    improve?: string;
-    /** Provider for content generation operations */
-    generate?: string;
+    /** Model and optional provider for content review/scoring operations */
+    review?: {
+      model: string;
+      provider?: string;
+    } | string;
+    /** Model and optional provider for content improvement operations */
+    improve?: {
+      model: string;
+      provider?: string;
+    } | string;
+    /** Model and optional provider for content generation operations */
+    generate?: {
+      model: string;
+      provider?: string;
+    } | string;
   };
   /** Task-specific model options configuration */
   taskModelOptions?: {
@@ -292,14 +219,3 @@ export interface ShakespeareConfigV2 {
   /** Content collection override */
   contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
-
-/**
- * Union type for all supported configuration versions
- */
-export type ShakespeareConfig = ShakespeareConfigV1 | ShakespeareConfigV2;
-
-/**
- * Legacy aliases for backward compatibility
- * @deprecated Use ShakespeareConfigV1 or ShakespeareConfigV2 instead
- */
-export type WorkflowConfig = ShakespeareConfigV1;

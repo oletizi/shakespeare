@@ -5,8 +5,8 @@ import { ContentEntry, QualityDimensions, ContentStatus } from '@/types/content'
 import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
 import { GooseAI } from '@/utils/goose';
 import { ShakespeareLogger } from '@/utils/logger';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig, ShakespeareConfig, ShakespeareConfigV1, ShakespeareConfigV2 } from '@/types/interfaces';
-import { normalizeConfig, UnsupportedConfigVersionError, InvalidConfigError } from '@/utils/config';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, ShakespeareConfig } from '@/types/interfaces';
+import { loadConfig, InvalidConfigError } from '@/utils/config';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -60,7 +60,7 @@ export class Shakespeare {
   private verbose: boolean = false;
   
   /** Configuration used to create this instance */
-  public readonly config: ShakespeareConfigV2;
+  public readonly config: ShakespeareConfig;
   
   /** Model options being used for AI operations */
   public readonly modelOptions?: AIModelOptions;
@@ -82,7 +82,6 @@ export class Shakespeare {
     
     // Store configuration for public access (rootDir is not part of config)
     this.config = {
-      version: 2,
       dbPath,
       contentCollection: options.contentCollection,
       verbose: false, // Will be updated by setVerbose() if needed
@@ -1055,7 +1054,7 @@ export class Shakespeare {
    * @param rootDir - The root directory to operate in
    * @param config - Configuration options
    */
-  static async create(rootDir: string, config: ShakespeareConfigV2 = {}): Promise<Shakespeare> {
+  static async create(rootDir: string, config: ShakespeareConfig = {}): Promise<Shakespeare> {
     const dbPath = config.dbPath;
     
     // Auto-detect project type if not specified
@@ -1126,8 +1125,8 @@ export class Shakespeare {
           }
           
           try {
-            // Normalize configuration using versioning system
-            const normalizedConfig = normalizeConfig(config);
+            // Use configuration directly - no normalization needed
+            const normalizedConfig = config;
             
             // The root directory should be the project root, not the config directory
             // For configs in .shakespeare/, use the parent directory
@@ -1144,7 +1143,7 @@ export class Shakespeare {
             const shakespeare = await Shakespeare.create(configDir, normalizedConfig);
             return shakespeare;
           } catch (error) {
-            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+            if (error instanceof InvalidConfigError) {
               // Provide helpful error messages for configuration issues
               new ShakespeareLogger().error(`Failed to load config from ${configFile}: ${error.message}`);
               throw error;
@@ -1154,7 +1153,7 @@ export class Shakespeare {
         }
       } catch (error) {
         // Re-throw validation errors instead of swallowing them
-        if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+        if (error instanceof InvalidConfigError) {
           throw error;
         }
         // Only warn and continue for other errors (file not found, parse errors, etc.)
@@ -1169,13 +1168,13 @@ export class Shakespeare {
         const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
         if (db.config) {
           try {
-            // Normalize database configuration using versioning system
-            const normalizedConfig = normalizeConfig(db.config);
+            // Use database configuration directly - no normalization needed
+            const normalizedConfig = db.config;
             // Use current working directory as root when loading from database
             const shakespeare = await Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
           } catch (error) {
-            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+            if (error instanceof InvalidConfigError) {
               new ShakespeareLogger().error(`Failed to load config from database: ${error.message}`);
               throw error;
             }
@@ -1192,11 +1191,10 @@ export class Shakespeare {
   }
 
   /**
-   * Convert WorkflowConfig to ShakespeareConfig
+   * Convert ShakespeareConfig to ShakespeareConfig
    */
-  static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig): Promise<ShakespeareConfigV2> {
-    const config: ShakespeareConfigV2 = {
-      version: 2,
+  static async workflowConfigToShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<ShakespeareConfig> {
+    const config: ShakespeareConfig = {
       verbose: workflowConfig.verbose,
       logLevel: workflowConfig.logLevel
     };
@@ -1208,18 +1206,22 @@ export class Shakespeare {
 
     // Configure models - use review model as default since it's most commonly used
     if (workflowConfig.models?.review) {
-      config.model = workflowConfig.models.review;
+      const reviewModel = workflowConfig.models.review;
+      if (typeof reviewModel === 'string') {
+        config.model = reviewModel;
+      } else {
+        config.model = reviewModel.model;
+        if (reviewModel.provider) {
+          config.provider = reviewModel.provider;
+        }
+      }
     }
 
-    if (workflowConfig.providers?.review) {
-      config.provider = workflowConfig.providers.review;
-    }
-
-    // If both provider and model are specified, combine them
-    if (config.provider || config.model) {
+    // If model is specified, set up model options
+    if (config.model) {
       config.modelOptions = {
-        provider: config.provider,
-        model: config.model
+        model: config.model,
+        provider: config.provider
       };
     }
 
@@ -1231,7 +1233,7 @@ export class Shakespeare {
   /**
    * Save workflow configuration to the content database
    */
-  async saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void> {
+  async saveShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<void> {
     await this._db.load();
     const currentData = this._db.getData();
     currentData.config = workflowConfig;
@@ -1242,7 +1244,7 @@ export class Shakespeare {
   /**
    * Get current workflow configuration from database
    */
-  async getWorkflowConfig(): Promise<WorkflowConfig | undefined> {
+  async getShakespeareConfig(): Promise<ShakespeareConfig | undefined> {
     await this._db.load();
     return this._db.getData().config;
   }
@@ -1268,26 +1270,30 @@ export class Shakespeare {
       return this.config.taskModelOptions[workflowType];
     }
     
-    // Then check for task-specific models/providers in current config
-    const provider = this.config.providers?.[workflowType];
-    const model = this.config.models?.[workflowType];
-    
-    if (provider || model) {
-      return { provider, model };
-    }
-    
-    // Fallback to legacy workflow config from database
-    const workflowConfig = await this.getWorkflowConfig();
-    if (workflowConfig) {
-      const legacyProvider = workflowConfig.providers?.[workflowType];
-      const legacyModel = workflowConfig.models?.[workflowType];
-      
-      if (legacyProvider || legacyModel) {
-        return { provider: legacyProvider, model: legacyModel };
+    // Then check for consolidated models configuration
+    const modelConfig = this.config.models?.[workflowType];
+    if (modelConfig) {
+      if (typeof modelConfig === 'string') {
+        // Backward compatibility: string model name
+        return { model: modelConfig };
+      } else {
+        // New format: object with model and optional provider
+        return {
+          model: modelConfig.model,
+          provider: modelConfig.provider
+        };
       }
     }
+    
 
-    return undefined;
+    // Provide sensible defaults when no configuration is found
+    const defaults = {
+      review: { model: 'gpt-4o-mini' }, // Fast, cost-effective for scoring
+      improve: { model: 'gpt-4o' },     // Higher quality for content improvement
+      generate: { model: 'gpt-4o' }     // Higher quality for content generation
+    };
+
+    return defaults[workflowType];
   }
 }
 
@@ -1334,7 +1340,7 @@ async function detectProjectType(rootDir: string): Promise<keyof typeof CONTENT_
 /**
  * Get model options based on optimization preference
  */
-function getOptimizedModelOptions(config: ShakespeareConfigV2): AIModelOptions | undefined {
+function getOptimizedModelOptions(config: ShakespeareConfig): AIModelOptions | undefined {
   if (config.modelOptions) return config.modelOptions;
   
   if (config.model || config.provider) {

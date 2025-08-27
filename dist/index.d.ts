@@ -1,7 +1,7 @@
 import { ContentEntry, ContentStatus } from '@/types/content';
 import { AIScorerOptions } from '@/utils/ai';
 import { ShakespeareLogger } from '@/utils/logger';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig, ShakespeareConfigV2 } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, ShakespeareConfig } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
 export { GooseAI } from '@/utils/goose';
@@ -49,7 +49,7 @@ export declare class Shakespeare {
     logger: ShakespeareLogger;
     private verbose;
     /** Configuration used to create this instance */
-    readonly config: ShakespeareConfigV2;
+    readonly config: ShakespeareConfig;
     /** Model options being used for AI operations */
     readonly modelOptions?: AIModelOptions;
     /**
@@ -178,23 +178,23 @@ export declare class Shakespeare {
      * @param rootDir - The root directory to operate in
      * @param config - Configuration options
      */
-    static create(rootDir: string, config?: ShakespeareConfigV2): Promise<Shakespeare>;
+    static create(rootDir: string, config?: ShakespeareConfig): Promise<Shakespeare>;
     /**
      * Create Shakespeare from configuration file or database config
      */
     static fromConfig(configPath?: string): Promise<Shakespeare>;
     /**
-     * Convert WorkflowConfig to ShakespeareConfig
+     * Convert ShakespeareConfig to ShakespeareConfig
      */
-    static workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig): Promise<ShakespeareConfigV2>;
+    static workflowConfigToShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<ShakespeareConfig>;
     /**
      * Save workflow configuration to the content database
      */
-    saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void>;
+    saveShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<void>;
     /**
      * Get current workflow configuration from database
      */
-    getWorkflowConfig(): Promise<WorkflowConfig | undefined>;
+    getShakespeareConfig(): Promise<ShakespeareConfig | undefined>;
     /**
      * Get model information as a formatted string for display
      */

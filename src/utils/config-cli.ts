@@ -5,7 +5,7 @@
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { validateConfigSchemaStrict, SchemaValidationError } from '@/utils/schema-validation';
-import { ShakespeareConfigV2 } from '@/types/interfaces';
+import { ShakespeareConfig } from '@/types/interfaces';
 
 /**
  * Configuration templates for different use cases
@@ -13,72 +13,51 @@ import { ShakespeareConfigV2 } from '@/types/interfaces';
 export const CONFIG_TEMPLATES = {
   astro: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
-    "version": 2,
     "contentCollection": "astro",
     "verbose": true,
     "logLevel": "info" as const,
     "models": {
-      "review": "gemini-1.5-flash-8b",
-      "improve": "claude-3-5-sonnet",
-      "generate": "claude-3-5-sonnet"
-    },
-    "providers": {
-      "review": "google",
-      "improve": "anthropic",
-      "generate": "anthropic"
+      "review": { "model": "gemini-1.5-flash-8b", "provider": "google" },
+      "improve": { "model": "claude-3-5-sonnet", "provider": "anthropic" },
+      "generate": { "model": "claude-3-5-sonnet", "provider": "anthropic" }
     }
   },
   nextjs: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
-    "version": 2,
     "contentCollection": "nextjs",
     "verbose": true,
     "logLevel": "info" as const,
     "models": {
-      "review": "gemini-1.5-flash-8b",
-      "improve": "claude-3-5-sonnet",
-      "generate": "claude-3-5-sonnet"
-    },
-    "providers": {
-      "review": "google",
-      "improve": "anthropic",
-      "generate": "anthropic"
+      "review": { "model": "gemini-1.5-flash-8b", "provider": "google" },
+      "improve": { "model": "claude-3-5-sonnet", "provider": "anthropic" },
+      "generate": { "model": "claude-3-5-sonnet", "provider": "anthropic" }
     }
   },
   gatsby: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
-    "version": 2,
     "contentCollection": "gatsby",
     "verbose": true,
     "logLevel": "info" as const,
     "models": {
-      "review": "gemini-1.5-flash-8b",
-      "improve": "claude-3-5-sonnet",
-      "generate": "claude-3-5-sonnet"
-    },
-    "providers": {
-      "review": "google",
-      "improve": "anthropic", 
-      "generate": "anthropic"
+      "review": { "model": "gemini-1.5-flash-8b", "provider": "google" },
+      "improve": { "model": "claude-3-5-sonnet", "provider": "anthropic" }, 
+      "generate": { "model": "claude-3-5-sonnet", "provider": "anthropic" }
     }
   },
   costOptimized: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
-    "version": 2,
     "costOptimized": true,
     "verbose": false,
     "logLevel": "info" as const
   },
   qualityFirst: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
-    "version": 2,
     "qualityFirst": true,
     "verbose": true,
     "logLevel": "debug" as const
   },
   minimal: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
-    "version": 2,
     "verbose": false
   }
 } as const;
@@ -251,9 +230,14 @@ export async function showConfig(): Promise<void> {
         
         if (config.models) {
           console.log('   Task Models:');
-          for (const [task, model] of Object.entries(config.models)) {
-            const provider = config.providers?.[task] || 'default';
-            console.log(`     ${task}: ${model} (${provider})`);
+          for (const [task, modelConfig] of Object.entries(config.models)) {
+            if (typeof modelConfig === 'string') {
+              console.log(`     ${task}: ${modelConfig} (default provider)`);
+            } else if (typeof modelConfig === 'object' && modelConfig) {
+              const obj = modelConfig as any;
+              const provider = obj.provider || 'default';
+              console.log(`     ${task}: ${obj.model} (${provider})`);
+            }
           }
         }
         
