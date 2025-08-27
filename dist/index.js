@@ -1600,6 +1600,9 @@ var Shakespeare = class _Shakespeare {
           }
         }
       } catch (error) {
+        if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+          throw error;
+        }
         new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
       }
     }

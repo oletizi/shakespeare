@@ -870,6 +870,11 @@ export class Shakespeare {
           }
         }
       } catch (error) {
+        // Re-throw validation errors instead of swallowing them
+        if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+          throw error;
+        }
+        // Only warn and continue for other errors (file not found, parse errors, etc.)
         new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
       }
     }
