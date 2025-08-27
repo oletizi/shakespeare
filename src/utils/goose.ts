@@ -54,7 +54,7 @@ export class GooseAI implements IAI {
     this.gooseCommand = 'goose'; // Assumes goose is in PATH
     this.cwd = cwd;
     this.defaultOptions = defaultOptions;
-    this.logger = logger || new ShakespeareLogger();
+    this.logger = logger || new ShakespeareLogger(cwd);
   }
 
   /**
@@ -127,14 +127,20 @@ export class GooseAI implements IAI {
             model: finalOptions.model 
           });
           
-          // Enhanced error reporting with more diagnostic info
-          const errorMsg = [
-            `Goose failed with exit code ${code}`,
-            error ? `STDERR: ${error}` : 'STDERR: (empty)',
-            output ? `STDOUT: ${output.substring(0, 200)}...` : 'STDOUT: (empty)',
-            `Command: ${this.gooseCommand} ${args.join(' ')}`,
-            `Prompt length: ${prompt.length} chars`
-          ].join('\n');
+          // Use enhanced error logging for better diagnostics
+          const errorContext = {
+            exitCode: code,
+            stderr: error || '(empty)',
+            stdout: output || '(empty)',
+            command: this.gooseCommand,
+            args: args,
+            promptLength: prompt.length,
+            modelOptions: finalOptions,
+            duration: duration
+          };
+          
+          const errorMsg = `Goose failed with exit code ${code}`;
+          this.logger.logError('Goose AI request', errorMsg, errorContext);
           reject(new Error(errorMsg));
         } else {
           const content = output.trim();

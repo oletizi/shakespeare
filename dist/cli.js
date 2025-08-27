@@ -200,28 +200,80 @@ import { spawn } from "child_process";
 
 // src/utils/logger.ts
 import winston from "winston";
+import { join } from "path";
+import { mkdirSync, existsSync, writeFileSync } from "fs";
 var ShakespeareLogger = class {
   logger;
   verboseEnabled = false;
-  constructor() {
+  errorLogPath;
+  constructor(rootDir) {
+    const logDir = rootDir ? join(rootDir, ".shakespeare") : join(process.cwd(), ".shakespeare");
+    this.errorLogPath = join(logDir, "errors.log");
+    const isTestEnvironment = process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== void 0;
+    const canCreateLogDir = !isTestEnvironment || rootDir?.startsWith("/tmp") || rootDir?.startsWith(process.cwd());
+    let fileTransport = null;
+    if (canCreateLogDir) {
+      if (!existsSync(logDir)) {
+        try {
+          mkdirSync(logDir, { recursive: true });
+          const gitignorePath = join(logDir, ".gitignore");
+          try {
+            writeFileSync(gitignorePath, "# Ignore Shakespeare log files\n*.log*\n");
+          } catch (error) {
+          }
+        } catch (error) {
+          if (!isTestEnvironment) {
+            console.warn(`Warning: Could not create log directory ${logDir}`);
+          }
+        }
+      }
+      if (existsSync(logDir)) {
+        try {
+          fileTransport = new winston.transports.File({
+            filename: this.errorLogPath,
+            level: "error",
+            format: winston.format.combine(
+              winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
+              winston.format.errors({ stack: true }),
+              winston.format.json()
+            ),
+            maxsize: 10 * 1024 * 1024,
+            // 10MB max file size
+            maxFiles: 5,
+            // Keep 5 error log files
+            tailable: true
+          });
+        } catch (error) {
+          if (!isTestEnvironment) {
+            console.warn(`Warning: Could not create error log file ${this.errorLogPath}`);
+          }
+        }
+      }
+    }
+    const transports = [
+      // Console transport for regular logging
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.colorize(),
+          winston.format.printf(({ timestamp, level, message, ...meta }) => {
+            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
+            const timeStr = typeof timestamp === "string" ? timestamp.split(" ")[1] : timestamp;
+            return `[${timeStr}] ${level}: ${message}${metaStr}`;
+          })
+        )
+      })
+    ];
+    if (fileTransport) {
+      transports.push(fileTransport);
+    }
     this.logger = winston.createLogger({
       level: "info",
       format: winston.format.combine(
-        winston.format.timestamp({ format: "HH:mm:ss.SSS" }),
+        winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
         winston.format.errors({ stack: true }),
         winston.format.json()
       ),
-      transports: [
-        new winston.transports.Console({
-          format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.printf(({ timestamp, level, message, ...meta }) => {
-              const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
-              return `[${timestamp}] ${level}: ${message}${metaStr}`;
-            })
-          )
-        })
-      ]
+      transports
     });
   }
   /**
@@ -279,10 +331,50 @@ var ShakespeareLogger = class {
     this.logger.warn(`\u26A0\uFE0F  ${message}`, meta);
   }
   /**
-   * Error level logging
+   * Error level logging - logs to console and error file
    */
   error(message, meta) {
     this.logger.error(`\u274C ${message}`, meta);
+  }
+  /**
+   * Enhanced error logging with full context and user guidance
+   */
+  logError(operation, error, context) {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const errorMessage = error instanceof Error ? error.message : error;
+    const errorStack = error instanceof Error ? error.stack : void 0;
+    const fullContext = {
+      timestamp,
+      operation,
+      error: errorMessage,
+      stack: errorStack,
+      context: context || {},
+      process: {
+        cwd: process.cwd(),
+        argv: process.argv,
+        version: process.version,
+        platform: process.platform
+      }
+    };
+    this.logger.error("Operation failed", fullContext);
+    const conciseMessage = `${operation} failed: ${errorMessage}`;
+    console.error(`
+\u274C ${conciseMessage}`);
+    const hasFileTransport = this.logger.transports.some((t) => t instanceof winston.transports.File);
+    if (hasFileTransport && existsSync(this.errorLogPath)) {
+      console.error(`\u{1F4CB} Full error details logged to: ${this.errorLogPath}`);
+      console.error(`\u{1F4A1} Run: tail -f "${this.errorLogPath}" to monitor errors
+`);
+    } else {
+      console.error(`\u{1F4CB} Full error details available in console output above
+`);
+    }
+  }
+  /**
+   * Get the path to the error log file
+   */
+  getErrorLogPath() {
+    return this.errorLogPath;
   }
   /**
    * Log command execution with elided content
@@ -380,7 +472,7 @@ var GooseAI = class {
     this.gooseCommand = "goose";
     this.cwd = cwd;
     this.defaultOptions = defaultOptions;
-    this.logger = logger || new ShakespeareLogger();
+    this.logger = logger || new ShakespeareLogger(cwd);
   }
   /**
    * Set the logger instance for command logging
@@ -432,13 +524,18 @@ var GooseAI = class {
             provider: finalOptions.provider,
             model: finalOptions.model
           });
-          const errorMsg = [
-            `Goose failed with exit code ${code}`,
-            error ? `STDERR: ${error}` : "STDERR: (empty)",
-            output ? `STDOUT: ${output.substring(0, 200)}...` : "STDOUT: (empty)",
-            `Command: ${this.gooseCommand} ${args.join(" ")}`,
-            `Prompt length: ${prompt.length} chars`
-          ].join("\n");
+          const errorContext = {
+            exitCode: code,
+            stderr: error || "(empty)",
+            stdout: output || "(empty)",
+            command: this.gooseCommand,
+            args,
+            promptLength: prompt.length,
+            modelOptions: finalOptions,
+            duration
+          };
+          const errorMsg = `Goose failed with exit code ${code}`;
+          this.logger.logError("Goose AI request", errorMsg, errorContext);
           reject(new Error(errorMsg));
         } else {
           const content = output.trim();
@@ -1101,7 +1198,7 @@ var Shakespeare = class _Shakespeare {
   constructor(rootDir = process.cwd(), dbPath, options = {}) {
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
-    this.logger = new ShakespeareLogger();
+    this.logger = new ShakespeareLogger(rootDir);
     this.config = {
       dbPath,
       contentCollection: options.contentCollection,
@@ -1868,20 +1965,20 @@ var Shakespeare = class _Shakespeare {
    * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath) {
-    const { join: join2, dirname: dirname2, resolve } = await import("path");
-    const { existsSync: existsSync2, readFileSync: readFileSync2 } = await import("fs");
+    const { join: join3, dirname: dirname2, resolve } = await import("path");
+    const { existsSync: existsSync3, readFileSync: readFileSync2 } = await import("fs");
     const cwd = process.cwd();
     const possiblePaths = [
       configPath,
-      join2(cwd, ".shakespeare", "config.json"),
-      join2(cwd, "shakespeare.config.js"),
-      join2(cwd, "shakespeare.config.mjs"),
-      join2(cwd, "shakespeare.config.json"),
-      join2(cwd, ".shakespeare.json")
+      join3(cwd, ".shakespeare", "config.json"),
+      join3(cwd, "shakespeare.config.js"),
+      join3(cwd, "shakespeare.config.mjs"),
+      join3(cwd, "shakespeare.config.json"),
+      join3(cwd, ".shakespeare.json")
     ].filter(Boolean);
     for (const configFile of possiblePaths) {
       try {
-        if (existsSync2(configFile)) {
+        if (existsSync3(configFile)) {
           let config;
           if (configFile.endsWith(".json")) {
             config = JSON.parse(readFileSync2(configFile, "utf-8"));
@@ -1916,8 +2013,8 @@ var Shakespeare = class _Shakespeare {
       }
     }
     try {
-      const dbPath = join2(cwd, ".shakespeare", "content-db.json");
-      if (existsSync2(dbPath)) {
+      const dbPath = join3(cwd, ".shakespeare", "content-db.json");
+      if (existsSync3(dbPath)) {
         const db = JSON.parse(readFileSync2(dbPath, "utf-8"));
         if (db.config) {
           try {
@@ -2020,11 +2117,11 @@ var Shakespeare = class _Shakespeare {
       }
     }
     const defaults = {
-      review: { model: "gpt-4o-mini" },
+      review: { model: "gpt-4o-mini", provider: "tetrate" },
       // Fast, cost-effective for scoring
-      improve: { model: "gpt-4o" },
+      improve: { model: "claude-3-5-sonnet-latest", provider: "tetrate" },
       // Higher quality for content improvement
-      generate: { model: "gpt-4o" }
+      generate: { model: "claude-3-5-sonnet-latest", provider: "tetrate" }
       // Higher quality for content generation
     };
     return defaults[workflowType];
@@ -2032,15 +2129,15 @@ var Shakespeare = class _Shakespeare {
 };
 async function detectProjectType(rootDir) {
   try {
-    const { existsSync: existsSync2 } = await import("fs");
-    const { join: join2 } = await import("path");
-    if (existsSync2(join2(rootDir, "astro.config.mjs")) || existsSync2(join2(rootDir, "astro.config.js")) || existsSync2(join2(rootDir, "src/content"))) {
+    const { existsSync: existsSync3 } = await import("fs");
+    const { join: join3 } = await import("path");
+    if (existsSync3(join3(rootDir, "astro.config.mjs")) || existsSync3(join3(rootDir, "astro.config.js")) || existsSync3(join3(rootDir, "src/content"))) {
       return "astro";
     }
-    if (existsSync2(join2(rootDir, "next.config.js")) || existsSync2(join2(rootDir, "next.config.mjs"))) {
+    if (existsSync3(join3(rootDir, "next.config.js")) || existsSync3(join3(rootDir, "next.config.mjs"))) {
       return "nextjs";
     }
-    if (existsSync2(join2(rootDir, "gatsby-config.js")) || existsSync2(join2(rootDir, "gatsby-config.ts"))) {
+    if (existsSync3(join3(rootDir, "gatsby-config.js")) || existsSync3(join3(rootDir, "gatsby-config.ts"))) {
       return "gatsby";
     }
     return "custom";
@@ -2072,8 +2169,8 @@ function getOptimizedModelOptions(config) {
 }
 
 // src/utils/config-cli.ts
-import { writeFileSync, existsSync, mkdirSync, readFileSync } from "fs";
-import { join } from "path";
+import { writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync } from "fs";
+import { join as join2 } from "path";
 var CONFIG_TEMPLATES = {
   astro: {
     "$schema": "https://schemas.shakespeare.ai/config/v2.json",
@@ -2081,9 +2178,9 @@ var CONFIG_TEMPLATES = {
     "verbose": true,
     "logLevel": "info",
     "models": {
-      "review": { "model": "gemini-1.5-flash-8b", "provider": "google" },
-      "improve": { "model": "claude-3-5-sonnet", "provider": "anthropic" },
-      "generate": { "model": "claude-3-5-sonnet", "provider": "anthropic" }
+      "review": { "model": "gpt-4o-mini", "provider": "tetrate" },
+      "improve": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
+      "generate": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" }
     }
   },
   nextjs: {
@@ -2092,9 +2189,9 @@ var CONFIG_TEMPLATES = {
     "verbose": true,
     "logLevel": "info",
     "models": {
-      "review": { "model": "gemini-1.5-flash-8b", "provider": "google" },
-      "improve": { "model": "claude-3-5-sonnet", "provider": "anthropic" },
-      "generate": { "model": "claude-3-5-sonnet", "provider": "anthropic" }
+      "review": { "model": "gpt-4o-mini", "provider": "tetrate" },
+      "improve": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
+      "generate": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" }
     }
   },
   gatsby: {
@@ -2126,18 +2223,18 @@ var CONFIG_TEMPLATES = {
   }
 };
 async function initConfig(template = "astro", customPath) {
-  const configDir = join(process.cwd(), ".shakespeare");
-  const configPath = customPath || join(configDir, "config.json");
-  if (existsSync(configPath)) {
+  const configDir = join2(process.cwd(), ".shakespeare");
+  const configPath = customPath || join2(configDir, "config.json");
+  if (existsSync2(configPath)) {
     console.log(`\u274C Configuration already exists at: ${configPath}`);
     console.log("   Use --force to overwrite or choose a different path");
     return;
   }
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+  if (!existsSync2(configDir)) {
+    mkdirSync2(configDir, { recursive: true });
   }
   const config = CONFIG_TEMPLATES[template];
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  writeFileSync2(configPath, JSON.stringify(config, null, 2) + "\n");
   console.log(`\u2705 Created Shakespeare configuration at: ${configPath}`);
   console.log(`\u{1F4CB} Template: ${template}`);
   console.log("");
@@ -2147,13 +2244,13 @@ async function initConfig(template = "astro", customPath) {
   console.log("   3. Run: npx shakespeare review");
 }
 async function initConfigForce(template = "astro", customPath) {
-  const configDir = join(process.cwd(), ".shakespeare");
-  const configPath = customPath || join(configDir, "config.json");
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+  const configDir = join2(process.cwd(), ".shakespeare");
+  const configPath = customPath || join2(configDir, "config.json");
+  if (!existsSync2(configDir)) {
+    mkdirSync2(configDir, { recursive: true });
   }
   const config = CONFIG_TEMPLATES[template];
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  writeFileSync2(configPath, JSON.stringify(config, null, 2) + "\n");
   console.log(`\u2705 Created Shakespeare configuration at: ${configPath}`);
   console.log(`\u{1F4CB} Template: ${template} (overwrote existing)`);
   console.log("");
@@ -2164,13 +2261,13 @@ async function initConfigForce(template = "astro", customPath) {
 }
 async function validateConfig() {
   const configPaths = [
-    join(process.cwd(), ".shakespeare", "config.json"),
-    join(process.cwd(), "shakespeare.config.json"),
-    join(process.cwd(), ".shakespeare.json")
+    join2(process.cwd(), ".shakespeare", "config.json"),
+    join2(process.cwd(), "shakespeare.config.json"),
+    join2(process.cwd(), ".shakespeare.json")
   ];
   let configFound = false;
   for (const configPath of configPaths) {
-    if (existsSync(configPath)) {
+    if (existsSync2(configPath)) {
       configFound = true;
       try {
         const configContent = readFileSync(configPath, "utf-8");
@@ -2219,13 +2316,13 @@ async function validateConfig() {
 }
 async function showConfig() {
   const configPaths = [
-    join(process.cwd(), ".shakespeare", "config.json"),
-    join(process.cwd(), "shakespeare.config.json"),
-    join(process.cwd(), ".shakespeare.json")
+    join2(process.cwd(), ".shakespeare", "config.json"),
+    join2(process.cwd(), "shakespeare.config.json"),
+    join2(process.cwd(), ".shakespeare.json")
   ];
   let configFound = false;
   for (const configPath of configPaths) {
-    if (existsSync(configPath)) {
+    if (existsSync2(configPath)) {
       configFound = true;
       try {
         const configContent = readFileSync(configPath, "utf-8");

@@ -5,7 +5,8 @@ import winston from 'winston';
 export declare class ShakespeareLogger {
     private logger;
     private verboseEnabled;
-    constructor();
+    private errorLogPath;
+    constructor(rootDir?: string);
     /**
      * Enable or disable verbose logging
      */
@@ -39,9 +40,17 @@ export declare class ShakespeareLogger {
      */
     warn(message: string, meta?: any): void;
     /**
-     * Error level logging
+     * Error level logging - logs to console and error file
      */
     error(message: string, meta?: any): void;
+    /**
+     * Enhanced error logging with full context and user guidance
+     */
+    logError(operation: string, error: Error | string, context?: any): void;
+    /**
+     * Get the path to the error log file
+     */
+    getErrorLogPath(): string;
     /**
      * Log command execution with elided content
      */

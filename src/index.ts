@@ -77,8 +77,8 @@ export class Shakespeare {
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path.join(rootDir, '.shakespeare', 'content-db.json');
     
-    // Initialize logger
-    this.logger = new ShakespeareLogger();
+    // Initialize logger with rootDir for error log placement
+    this.logger = new ShakespeareLogger(rootDir);
     
     // Store configuration for public access (rootDir is not part of config)
     this.config = {
@@ -1295,9 +1295,9 @@ export class Shakespeare {
 
     // Provide sensible defaults when no configuration is found
     const defaults = {
-      review: { model: 'gpt-4o-mini' }, // Fast, cost-effective for scoring
-      improve: { model: 'gpt-4o' },     // Higher quality for content improvement
-      generate: { model: 'gpt-4o' }     // Higher quality for content generation
+      review: { model: 'gpt-4o-mini', provider: 'tetrate' }, // Fast, cost-effective for scoring
+      improve: { model: 'claude-3-5-sonnet-latest', provider: 'tetrate' },     // Higher quality for content improvement
+      generate: { model: 'claude-3-5-sonnet-latest', provider: 'tetrate' }     // Higher quality for content generation
     };
 
     return defaults[workflowType];

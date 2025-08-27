@@ -12,16 +12,16 @@ export declare const CONFIG_TEMPLATES: {
         readonly logLevel: "info";
         readonly models: {
             readonly review: {
-                readonly model: "gemini-1.5-flash-8b";
-                readonly provider: "google";
+                readonly model: "gpt-4o-mini";
+                readonly provider: "tetrate";
             };
             readonly improve: {
-                readonly model: "claude-3-5-sonnet";
-                readonly provider: "anthropic";
+                readonly model: "claude-3-5-sonnet-latest";
+                readonly provider: "tetrate";
             };
             readonly generate: {
-                readonly model: "claude-3-5-sonnet";
-                readonly provider: "anthropic";
+                readonly model: "claude-3-5-sonnet-latest";
+                readonly provider: "tetrate";
             };
         };
     };
@@ -32,16 +32,16 @@ export declare const CONFIG_TEMPLATES: {
         readonly logLevel: "info";
         readonly models: {
             readonly review: {
-                readonly model: "gemini-1.5-flash-8b";
-                readonly provider: "google";
+                readonly model: "gpt-4o-mini";
+                readonly provider: "tetrate";
             };
             readonly improve: {
-                readonly model: "claude-3-5-sonnet";
-                readonly provider: "anthropic";
+                readonly model: "claude-3-5-sonnet-latest";
+                readonly provider: "tetrate";
             };
             readonly generate: {
-                readonly model: "claude-3-5-sonnet";
-                readonly provider: "anthropic";
+                readonly model: "claude-3-5-sonnet-latest";
+                readonly provider: "tetrate";
             };
         };
     };
