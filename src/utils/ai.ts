@@ -24,115 +24,110 @@ export interface AIContentAnalysis {
  */
 export const ANALYSIS_PROMPTS = {
   readability: `
-    Analyze the following content for readability. Consider:
-    - Sentence structure and length
-    - Vocabulary level and consistency
-    - Paragraph organization
-    - Use of transitions
-    - Clear and concise explanations
+    Analyze the following content for readability. Consider sentence structure, vocabulary level, paragraph organization, transitions, and clarity.
     
-    Score from 0-10 where:
+    You MUST respond in this exact format:
+    
+    SCORE: [number from 0-10]
+    REASONING: [2-3 sentences explaining the score]
+    SUGGESTIONS:
+    - [Specific actionable suggestion 1]
+    - [Specific actionable suggestion 2]
+    - [Specific actionable suggestion 3]
+    
+    Score meanings:
     0-3: Difficult to read, needs major revision
-    4-6: Somewhat readable but needs improvement
-    7-8: Good readability
+    4-6: Somewhat readable but needs improvement  
+    7-8: Good readability with minor issues
     9-10: Excellent, clear and engaging
-    
-    Provide:
-    1. Numeric score (0-10)
-    2. Brief reasoning for the score
-    3. Specific suggestions for improvement
     
     Content to analyze:
     {content}
     `,
 
   seoScore: `
-    Evaluate the following content for SEO effectiveness. Consider:
-    - Keyword usage and placement
-    - Meta description potential
-    - Header structure and organization
-    - Internal/external linking opportunities
-    - Content length and depth
+    Evaluate the following content for SEO effectiveness. Consider keyword usage, header structure, content length, and search intent alignment.
     
-    Score from 0-10 where:
-    0-3: Poor SEO optimization
-    4-6: Basic SEO implementation
-    7-8: Good SEO practices
+    You MUST respond in this exact format:
+    
+    SCORE: [number from 0-10]
+    REASONING: [2-3 sentences explaining the score]
+    SUGGESTIONS:
+    - [Specific actionable suggestion 1]
+    - [Specific actionable suggestion 2]
+    - [Specific actionable suggestion 3]
+    
+    Score meanings:
+    0-3: Poor SEO optimization, needs major improvements
+    4-6: Basic SEO with significant room for improvement
+    7-8: Good SEO optimization with minor gaps
     9-10: Excellent SEO optimization
-    
-    Provide:
-    1. Numeric score (0-10)
-    2. Brief reasoning for the score
-    3. Specific suggestions for improvement
     
     Content to analyze:
     {content}
     `,
 
   technicalAccuracy: `
-    Review the following content for technical accuracy. Consider:
-    - Factual correctness
-    - Code examples (if any)
-    - Technical terminology usage
-    - Up-to-date information
-    - Technical depth appropriate for the topic
+    Review the following content for technical accuracy. Consider factual correctness, code examples, terminology usage, and up-to-date information.
     
-    Score from 0-10 where:
+    You MUST respond in this exact format:
+    
+    SCORE: [number from 0-10]
+    REASONING: [2-3 sentences explaining the score]
+    SUGGESTIONS:
+    - [Specific actionable suggestion 1]
+    - [Specific actionable suggestion 2]
+    - [Specific actionable suggestion 3]
+    
+    Score meanings:
     0-3: Contains significant technical errors
-    4-6: Some technical inaccuracies
+    4-6: Some technical inaccuracies need fixing
     7-8: Generally accurate with minor issues
     9-10: Highly accurate and well-researched
-    
-    Provide:
-    1. Numeric score (0-10)
-    2. Brief reasoning for the score
-    3. Specific suggestions for improvement
     
     Content to analyze:
     {content}
     `,
 
   engagement: `
-    Evaluate the content's engagement level. Consider:
-    - Writing style and tone
-    - Use of examples and analogies
-    - Reader interaction elements
-    - Story-telling elements
-    - Call-to-action effectiveness
+    Evaluate the content's engagement level. Consider writing style, examples, reader interaction elements, and storytelling.
     
-    Score from 0-10 where:
-    0-3: Dry and unengaging
-    4-6: Somewhat engaging but could improve
-    7-8: Good engagement level
+    You MUST respond in this exact format:
+    
+    SCORE: [number from 0-10]
+    REASONING: [2-3 sentences explaining the score]
+    SUGGESTIONS:
+    - [Specific actionable suggestion 1]
+    - [Specific actionable suggestion 2]
+    - [Specific actionable suggestion 3]
+    
+    Score meanings:
+    0-3: Dry and unengaging, needs major improvements
+    4-6: Somewhat engaging but significant room for improvement
+    7-8: Good engagement level with minor enhancements needed
     9-10: Highly engaging and compelling
-    
-    Provide:
-    1. Numeric score (0-10)
-    2. Brief reasoning for the score
-    3. Specific suggestions for improvement
     
     Content to analyze:
     {content}
     `,
 
   contentDepth: `
-    Analyze the content's depth and comprehensiveness. Consider:
-    - Topic coverage breadth
-    - Supporting evidence and examples
-    - Explanation thoroughness
-    - Context and background information
-    - Advanced concept handling
+    Analyze the content's depth and comprehensiveness. Consider topic coverage, supporting evidence, explanation thoroughness, and advanced concepts.
     
-    Score from 0-10 where:
-    0-3: Surface level only
-    4-6: Basic coverage with some depth
+    You MUST respond in this exact format:
+    
+    SCORE: [number from 0-10]
+    REASONING: [2-3 sentences explaining the score]
+    SUGGESTIONS:
+    - [Specific actionable suggestion 1]
+    - [Specific actionable suggestion 2]
+    - [Specific actionable suggestion 3]
+    
+    Score meanings:
+    0-3: Surface level only, needs significant depth
+    4-6: Basic coverage with some depth, needs expansion
     7-8: Good depth with most aspects covered
     9-10: Comprehensive and thorough coverage
-    
-    Provide:
-    1. Numeric score (0-10)
-    2. Brief reasoning for the score
-    3. Specific suggestions for improvement
     
     Content to analyze:
     {content}
@@ -144,7 +139,7 @@ export const ANALYSIS_PROMPTS = {
  */
 export const IMPROVEMENT_PROMPT = `
 You are a content improvement specialist. Review the following content and its quality analysis.
-Focus on the dimensions that scored lowest and provide specific improvements.
+Your goal is to ENHANCE the existing content while preserving its comprehensive depth and structure.
 
 Current scores and analysis:
 {analysis}
@@ -152,7 +147,14 @@ Current scores and analysis:
 Original content:
 {content}
 
-CRITICAL INSTRUCTIONS:
+CRITICAL LENGTH AND STRUCTURE PRESERVATION:
+- MAINTAIN the original content length and depth - your improved version should be similar in length to the original
+- PRESERVE all valuable information, examples, code blocks, and technical details
+- DO NOT condense, summarize, or remove comprehensive coverage
+- ENHANCE clarity and presentation while keeping all substantive content
+- If the original is comprehensive and detailed, your improvement should be equally comprehensive
+
+CRITICAL OUTPUT INSTRUCTIONS:
 1. Return ONLY the improved version of the complete content
 2. Do NOT include any preamble, explanation, or commentary
 3. Do NOT start with phrases like "I'll help improve..." or "Here's the improved version..."
@@ -161,32 +163,72 @@ CRITICAL INSTRUCTIONS:
 6. Maintain the same file format (Markdown, MDX, etc.)
 7. Start your response with the frontmatter (if present) or the first line of actual content
 
-Focus improvements on:
-- Dimensions that scored lowest in the analysis
-- Maintaining technical accuracy while improving readability
-- Enhancing engagement without changing the core message
-Preserve the original meaning and intent while enhancing the presentation and effectiveness.
+IMPROVEMENT FOCUS:
+- Target dimensions that scored lowest in the analysis
+- Improve readability through better organization, clearer explanations, and smoother transitions
+- Enhance engagement with better examples, more compelling language, and improved structure
+- Fix technical accuracy issues while maintaining comprehensive coverage
+- Improve SEO through better headers, keyword usage, and content organization
+- Deepen content where suggestions indicate gaps, but preserve existing depth
+
+Remember: You are IMPROVING comprehensive content, not rewriting or condensing it. The enhanced version should maintain the original's value while being more effective and engaging.
 `;
 
 /**
  * Parse Goose response to extract score, reasoning, and suggestions
+ * Handles the structured format: SCORE: X, REASONING: Y, SUGGESTIONS: - item1, - item2
  */
 function parseGooseResponse(response: string): AIScoreResponse {
-  // Example response parsing - adjust based on actual Goose output format
-  const lines = response.split('\n').map(l => l.trim()).filter(Boolean);
-  
   let score = 7.0; // Default score
-  let reasoning = '';
+  let reasoning = 'Analysis completed';
   const suggestions: string[] = [];
   
-  for (const line of lines) {
-    if (line.match(/^\d+(\.\d+)?$/)) {
-      score = parseFloat(line);
-    } else if (line.startsWith('- ')) {
-      suggestions.push(line.slice(2));
-    } else {
-      reasoning = line;
+  try {
+    const lines = response.split('\n').map(l => l.trim()).filter(Boolean);
+    let inSuggestions = false;
+    
+    for (const line of lines) {
+      // Look for structured format first
+      if (line.startsWith('SCORE:')) {
+        const scoreMatch = line.match(/SCORE:\s*(\d+(?:\.\d+)?)/);
+        if (scoreMatch) {
+          score = parseFloat(scoreMatch[1]);
+        }
+      } else if (line.startsWith('REASONING:')) {
+        reasoning = line.replace(/^REASONING:\s*/, '').trim();
+      } else if (line === 'SUGGESTIONS:') {
+        inSuggestions = true;
+      } else if (inSuggestions && line.startsWith('- ')) {
+        suggestions.push(line.slice(2).trim());
+      } else if (inSuggestions && !line.startsWith('- ') && line.length > 0) {
+        // Stop collecting suggestions if we hit non-bullet text
+        inSuggestions = false;
+      }
+      
+      // Fallback: if no structured format, try old parsing
+      if (!line.startsWith('SCORE:') && !line.startsWith('REASONING:') && !line.startsWith('SUGGESTIONS:')) {
+        // Look for standalone number (old format)
+        if (line.match(/^\d+(\.\d+)?$/)) {
+          score = parseFloat(line);
+        } else if (line.startsWith('- ') && suggestions.length === 0) {
+          // Only collect old-format suggestions if we haven't found structured ones
+          suggestions.push(line.slice(2).trim());
+        } else if (reasoning === 'Analysis completed' && line.length > 20) {
+          // Use longer lines as reasoning if we haven't found structured reasoning
+          reasoning = line;
+        }
+      }
     }
+    
+    // Ensure we have at least some suggestions even if parsing partially failed
+    if (suggestions.length === 0) {
+      suggestions.push('Review content structure and clarity');
+      suggestions.push('Consider adding more specific examples');
+      suggestions.push('Enhance explanation depth where needed');
+    }
+    
+  } catch (error) {
+    console.warn('Error parsing AI response, using defaults:', error);
   }
   
   return {
@@ -564,15 +606,34 @@ export class AIScorer implements IContentScorer {
       operation: 'improve_content_completed'
     });
     
-    if (finalLength < originalLength * 0.3) {
-      this.logger.error(`[${executionId}] Content too short - likely parsing error`, {
+    // Implement tiered length validation
+    if (finalLength < originalLength * 0.7) {
+      this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
         originalLength,
         finalLength,
         lengthRatio,
         operation: 'improve_content_validation_error'
       });
-      throw new Error(`AI returned suspiciously short content (${finalLength} chars vs original ${originalLength} chars)`);
+      throw new Error(`AI returned suspiciously short content (${finalLength} chars vs original ${originalLength} chars). Content should be 70-120% of original length.`);
+    } else if (finalLength < originalLength * 0.85) {
+      this.logger.warn(`[${executionId}] Content shorter than expected but acceptable`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: 'improve_content_validation_warning'
+      });
+      console.warn(`⚠️  Improved content is shorter than expected (${Math.round(lengthRatio * 100)}% of original). This may indicate over-condensation.`);
+    } else if (finalLength > originalLength * 1.2) {
+      this.logger.warn(`[${executionId}] Content longer than expected`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: 'improve_content_validation_info'
+      });
+      console.log(`ℹ️  Improved content is longer than original (${Math.round(lengthRatio * 100)}% of original). This may indicate good expansion of ideas.`);
     }
     
     return {
