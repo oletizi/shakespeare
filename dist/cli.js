@@ -2344,6 +2344,7 @@ COMMANDS
   discover     Discover and index content files
   review       Review all content that needs analysis
   improve      Improve worst-scoring content
+  status       Show content health status dashboard
   workflow     Run complete workflow (discover \u2192 review \u2192 improve)
   config       Configuration management (init, validate, show)
   help         Show this help message
@@ -2359,6 +2360,7 @@ EXAMPLES
   npx shakespeare discover              # Find and index all content
   npx shakespeare review                # AI review of unreviewed content
   npx shakespeare improve               # Improve lowest-scoring content
+  npx shakespeare status                # Show content health dashboard
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
   npx shakespeare config validate       # Validate current config
@@ -2428,6 +2430,34 @@ async function main() {
       case "improve":
         console.log("\u{1F680} Running content improvement...");
         await shakespeare.improveWorst();
+        break;
+      case "status":
+        console.log("\u{1F4CA} Content Health Status\n");
+        const status = await shakespeare.getStatus();
+        console.log("\u{1F4C8} Overview:");
+        console.log(`   \u{1F4C2} Total Files: ${status.totalFiles}`);
+        console.log(`   \u23F3 Needs Review: ${status.needsReview}`);
+        console.log(`   \u26A0\uFE0F  Needs Improvement: ${status.needsImprovement}`);
+        console.log(`   \u2705 Meets Targets: ${status.meetsTargets}`);
+        console.log("");
+        if (status.averageScore > 0) {
+          console.log("\u{1F4CA} Content Quality:");
+          console.log(`   \u{1F4C8} Average Score: ${status.averageScore.toFixed(1)}/10`);
+          if (status.worstScoring) {
+            console.log(`   \u{1F4C9} Lowest Scoring: ${status.worstScoring}`);
+          }
+          console.log("");
+        }
+        if (status.needsReview > 0) {
+          console.log("\u{1F504} Recommended Next Steps:");
+          console.log(`   1. Run: npx shakespeare review    # Review ${status.needsReview} files`);
+        }
+        if (status.needsImprovement > 0) {
+          console.log(`   ${status.needsReview > 0 ? "2" : "1"}. Run: npx shakespeare improve   # Improve ${status.needsImprovement} files`);
+        }
+        if (status.needsReview === 0 && status.needsImprovement === 0) {
+          console.log("\u{1F389} All content is up to date!");
+        }
         break;
       case "workflow":
         console.log("\u{1F504} Running complete workflow...");
