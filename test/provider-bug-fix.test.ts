@@ -42,7 +42,7 @@ describe('Provider Auto-Addition Bug Fix', () => {
     };
 
     // Test improvement without forcing any specific options
-    await aiScorer.improveContentWithCosts('Test content', mockAnalysis);
+    await aiScorer.improveContent('Test content', mockAnalysis);
 
     // Verify that no provider/model options were forced (should be undefined)
     expect(mockGooseAI.promptWithOptions).toHaveBeenCalledWith(
@@ -88,7 +88,7 @@ describe('Provider Auto-Addition Bug Fix', () => {
 
     // Test with explicit user options
     const userOptions = { provider: 'deepinfra', model: 'deepseek-chat' };
-    await aiScorer.improveContentWithCosts('Test content', mockAnalysis, userOptions);
+    await aiScorer.improveContent('Test content', mockAnalysis, userOptions);
 
     // Verify that the exact user options were passed through
     expect(mockGooseAI.promptWithOptions).toHaveBeenCalledWith(

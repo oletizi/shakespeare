@@ -692,14 +692,31 @@ var AIScorer = class {
     for (const strategy of scoringStrategies) {
       const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
       const prompt = promptTemplate.replace("{content}", content);
-      const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
-      analysis.scores[strategy.dimension] = result.response.score;
-      analysis.analysis[strategy.dimension] = {
-        reasoning: result.response.reasoning,
-        suggestions: result.response.suggestions || []
-      };
-      costBreakdown[strategy.dimension] = result.costInfo;
-      totalCost += result.costInfo.totalCost;
+      try {
+        const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
+        analysis.scores[strategy.dimension] = result.response.score;
+        analysis.analysis[strategy.dimension] = {
+          reasoning: result.response.reasoning,
+          suggestions: result.response.suggestions || []
+        };
+        costBreakdown[strategy.dimension] = result.costInfo;
+        totalCost += result.costInfo.totalCost;
+      } catch (error) {
+        console.error(`Error scoring ${strategy.dimension}:`, error);
+        analysis.scores[strategy.dimension] = 5;
+        analysis.analysis[strategy.dimension] = {
+          reasoning: "Error during scoring process",
+          suggestions: ["Retry scoring"]
+        };
+        costBreakdown[strategy.dimension] = {
+          provider: strategy.preferredModel?.provider || "unknown",
+          model: strategy.preferredModel?.model || "unknown",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
     }
     return {
       analysis,

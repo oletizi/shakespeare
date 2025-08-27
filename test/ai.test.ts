@@ -32,14 +32,14 @@ describe('AI Content Scoring', () => {
     const analysis = await scorer.scoreContent(content);
     
     // Check all dimensions are scored
-    expect(analysis.scores).toHaveProperty('readability');
-    expect(analysis.scores).toHaveProperty('seoScore');
-    expect(analysis.scores).toHaveProperty('technicalAccuracy');
-    expect(analysis.scores).toHaveProperty('engagement');
-    expect(analysis.scores).toHaveProperty('contentDepth');
+    expect(analysis.analysis.scores).toHaveProperty('readability');
+    expect(analysis.analysis.scores).toHaveProperty('seoScore');
+    expect(analysis.analysis.scores).toHaveProperty('technicalAccuracy');
+    expect(analysis.analysis.scores).toHaveProperty('engagement');
+    expect(analysis.analysis.scores).toHaveProperty('contentDepth');
 
     // Check score ranges
-    Object.values(analysis.scores).forEach(score => {
+    Object.values(analysis.analysis.scores).forEach(score => {
       expect(score).toBeGreaterThanOrEqual(0);
       expect(score).toBeLessThanOrEqual(10);
     });
@@ -49,7 +49,7 @@ describe('AI Content Scoring', () => {
     const analysis = await scorer.scoreContent(content);
     
     // Check analysis structure
-    Object.values(analysis.analysis).forEach(dimension => {
+    Object.values(analysis.analysis.analysis).forEach(dimension => {
       expect(dimension).toHaveProperty('reasoning');
       expect(dimension).toHaveProperty('suggestions');
       expect(Array.isArray(dimension.suggestions)).toBe(true);
@@ -63,12 +63,12 @@ describe('AI Content Scoring', () => {
     // Add mock response for improvement
     mockAI.addResponse('# Improved Understanding TypeScript Generics\n\nThis improved content has better structure and examples...\n\nSummary of changes: Added more examples, improved readability\nExpected impact: Higher engagement and readability scores');
     
-    const improvedContent = await scorer.improveContent(content, analysis);
+    const improveResponse = await scorer.improveContent(content, analysis.analysis);
     
     // Improved content should be different from original
-    expect(improvedContent).not.toBe(content);
-    expect(improvedContent.length).toBeGreaterThan(0);
-    expect(improvedContent).toContain('Improved Understanding TypeScript Generics');
+    expect(improveResponse.content).not.toBe(content);
+    expect(improveResponse.content.length).toBeGreaterThan(0);
+    expect(improveResponse.content).toContain('Improved Understanding TypeScript Generics');
   });
 
   test('should handle AI errors during scoring', async () => {
@@ -84,9 +84,9 @@ describe('AI Content Scoring', () => {
     const analysis = await errorScorer.scoreContent(content);
     
     // Should return default error values
-    expect(analysis.scores.readability).toBe(5.0);
-    expect(analysis.analysis.readability.reasoning).toBe('Error during scoring process');
-    expect(analysis.analysis.readability.suggestions).toContain('Retry scoring');
+    expect(analysis.analysis.scores.readability).toBe(5.0);
+    expect(analysis.analysis.analysis.readability.reasoning).toBe('Error during scoring process');
+    expect(analysis.analysis.analysis.readability.suggestions).toContain('Retry scoring');
   });
 
   test('should handle AI errors during content improvement', async () => {
@@ -102,10 +102,9 @@ describe('AI Content Scoring', () => {
     
     const errorAI = new ErrorAI([]);
     const errorScorer = new AIScorer({ ai: errorAI });
-    const improvedContent = await errorScorer.improveContent(content, analysis);
     
-    // Should return original content on error
-    expect(improvedContent).toBe(content);
+    // Should throw error instead of returning original content
+    await expect(errorScorer.improveContent(content, analysis.analysis)).rejects.toThrow();
   });
 
   test('should parse malformed AI responses gracefully', async () => {
@@ -122,8 +121,8 @@ describe('AI Content Scoring', () => {
     const analysis = await malformedScorer.scoreContent(content);
     
     // Should still return valid analysis with default scores
-    expect(analysis.scores).toBeDefined();
-    expect(analysis.analysis).toBeDefined();
-    expect(typeof analysis.scores.readability).toBe('number');
+    expect(analysis.analysis.scores).toBeDefined();
+    expect(analysis.analysis.analysis).toBeDefined();
+    expect(typeof analysis.analysis.scores.readability).toBe('number');
   });
 });
