@@ -2,7 +2,7 @@ import winston from 'winston';
 /**
  * Format error for console display - keeps it concise and user-friendly
  */
-export declare function formatErrorForConsole(error: unknown, operation?: string): string;
+export declare function formatErrorForConsole(error: unknown, operation?: string, context?: any): string;
 /**
  * Structured logger for Shakespeare with configurable verbosity levels
  */

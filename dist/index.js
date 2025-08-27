@@ -206,7 +206,7 @@ import winston from "winston";
 import { join } from "path";
 import { mkdirSync, existsSync, writeFileSync } from "fs";
 var MAX_CONSOLE_ERROR_LENGTH = 200;
-function formatErrorForConsole(error, operation) {
+function formatErrorForConsole(error, operation, context) {
   let errorMessage;
   if (error instanceof Error) {
     errorMessage = error.message;
@@ -217,6 +217,14 @@ function formatErrorForConsole(error, operation) {
   }
   if (operation) {
     errorMessage = `${operation}: ${errorMessage}`;
+  }
+  if (context) {
+    const contextStr = JSON.stringify(context);
+    const maxContextLength = MAX_CONSOLE_ERROR_LENGTH - errorMessage.length - 20;
+    if (maxContextLength > 20) {
+      const truncatedContext = contextStr.length > maxContextLength ? contextStr.substring(0, maxContextLength) + "..." : contextStr;
+      errorMessage += ` (Context: ${truncatedContext})`;
+    }
   }
   if (errorMessage.length > MAX_CONSOLE_ERROR_LENGTH) {
     errorMessage = errorMessage.substring(0, MAX_CONSOLE_ERROR_LENGTH) + "...";
@@ -366,21 +374,19 @@ var ShakespeareLogger = class {
    * This should be the single entry point for all error logging in the application
    */
   logError(operation, error, context) {
-    let errorToLog = error;
-    if (context) {
-      errorToLog = error instanceof Error ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`) : `${error} (Context: ${JSON.stringify(context)})`;
-    }
-    const conciseError = formatErrorForConsole(errorToLog, operation);
+    const conciseError = formatErrorForConsole(error, operation, context);
     console.error();
     console.error(`\u274C ${conciseError}`);
-    const errorMessage = errorToLog instanceof Error ? errorToLog.message : String(errorToLog);
-    const errorStack = errorToLog instanceof Error ? errorToLog.stack : void 0;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : void 0;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const fullContext = {
       timestamp,
       operation: operation || "Unknown operation",
       error: errorMessage,
       stack: errorStack,
+      ...context && { context },
+      // Include provided context
       process: {
         cwd: process.cwd(),
         argv: process.argv,

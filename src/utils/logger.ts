@@ -10,7 +10,7 @@ const MAX_CONSOLE_ERROR_LENGTH = 200;
 /**
  * Format error for console display - keeps it concise and user-friendly
  */
-export function formatErrorForConsole(error: unknown, operation?: string): string {
+export function formatErrorForConsole(error: unknown, operation?: string, context?: any): string {
   let errorMessage: string;
   
   if (error instanceof Error) {
@@ -27,7 +27,20 @@ export function formatErrorForConsole(error: unknown, operation?: string): strin
     errorMessage = `${operation}: ${errorMessage}`;
   }
   
-  // Truncate if too long and add reference to full error log
+  // Add truncated context if provided
+  if (context) {
+    const contextStr = JSON.stringify(context);
+    const maxContextLength = MAX_CONSOLE_ERROR_LENGTH - errorMessage.length - 20; // Leave room for " (Context: ...)"
+    
+    if (maxContextLength > 20) { // Only add context if we have reasonable space
+      const truncatedContext = contextStr.length > maxContextLength 
+        ? contextStr.substring(0, maxContextLength) + '...'
+        : contextStr;
+      errorMessage += ` (Context: ${truncatedContext})`;
+    }
+  }
+  
+  // Final truncation if still too long
   if (errorMessage.length > MAX_CONSOLE_ERROR_LENGTH) {
     errorMessage = errorMessage.substring(0, MAX_CONSOLE_ERROR_LENGTH) + '...';
   }
@@ -209,22 +222,14 @@ export class ShakespeareLogger {
    * This should be the single entry point for all error logging in the application
    */
   logError(operation: string, error: unknown, context?: any): void {
-    // Create the error object to log
-    let errorToLog = error;
-    if (context) {
-      errorToLog = error instanceof Error 
-        ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`)
-        : `${error} (Context: ${JSON.stringify(context)})`;
-    }
-
-    // Always log concise error to console
-    const conciseError = formatErrorForConsole(errorToLog, operation);
+    // Always log concise error to console (WITH truncated context)
+    const conciseError = formatErrorForConsole(error, operation, context);
     console.error(); // Add newline for spacing
     console.error(`❌ ${conciseError}`);
     
-    // Log full error details to file
-    const errorMessage = errorToLog instanceof Error ? errorToLog.message : String(errorToLog);
-    const errorStack = errorToLog instanceof Error ? errorToLog.stack : undefined;
+    // Log full error details to file (WITH context)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
     const timestamp = new Date().toISOString();
     
     const fullContext = {
@@ -232,6 +237,7 @@ export class ShakespeareLogger {
       operation: operation || 'Unknown operation',
       error: errorMessage,
       stack: errorStack,
+      ...(context && { context }), // Include provided context
       process: {
         cwd: process.cwd(),
         argv: process.argv,

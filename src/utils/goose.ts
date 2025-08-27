@@ -129,7 +129,7 @@ export class GooseAI implements IAI {
           
           const errorMsg = `Goose failed with exit code ${code}`;
           
-          // Enhanced error context for logging
+          // Enhanced error context for logging (separate from main error message)
           const errorContext = {
             exitCode: code,
             stderr: error || '(empty)',
@@ -141,7 +141,7 @@ export class GooseAI implements IAI {
             duration: duration
           };
           
-          // Use centralized error logging - handles both console (concise) and file (verbose)
+          // Use centralized error logging - context goes to file only, not console
           this.logger.logError('Goose AI request', errorMsg, errorContext);
           
           reject(new Error(errorMsg));
