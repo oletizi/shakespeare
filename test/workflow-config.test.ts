@@ -117,7 +117,6 @@ describe('Workflow Configuration', () => {
 
     expect(shakespeareConfig).toEqual({
       version: 2,
-      rootDir: testDir,
       verbose: true,
       logLevel: undefined,
       contentCollection: 'gatsby',

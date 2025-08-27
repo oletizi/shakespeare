@@ -79,10 +79,9 @@ export class Shakespeare {
     // Initialize logger
     this.logger = new ShakespeareLogger();
     
-    // Store configuration for public access
+    // Store configuration for public access (rootDir is not part of config)
     this.config = {
       version: 2,
-      rootDir,
       dbPath,
       contentCollection: options.contentCollection,
       verbose: false, // Will be updated by setVerbose() if needed
@@ -775,9 +774,10 @@ export class Shakespeare {
 
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
+   * @param rootDir - The root directory to operate in
+   * @param config - Configuration options
    */
-  static async create(config: ShakespeareConfigV2 = {}): Promise<Shakespeare> {
-    const rootDir = config.rootDir || process.cwd();
+  static async create(rootDir: string, config: ShakespeareConfigV2 = {}): Promise<Shakespeare> {
     const dbPath = config.dbPath;
     
     // Auto-detect project type if not specified
@@ -794,7 +794,7 @@ export class Shakespeare {
     
     const shakespeare = new Shakespeare(rootDir, dbPath, options);
     
-    // Store the full configuration that was used to create this instance
+    // Store the full configuration that was used to create this instance (without rootDir)
     (shakespeare.config as any) = {
       ...shakespeare.config,
       ...config,
@@ -803,6 +803,7 @@ export class Shakespeare {
       provider: defaultModelOptions?.provider || config.provider,
       modelOptions: defaultModelOptions
     };
+    // Note: rootDir is not stored in config as it's a runtime parameter
     
     if (config.verbose) {
       shakespeare.setVerbose(true);
@@ -819,17 +820,17 @@ export class Shakespeare {
    * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath?: string): Promise<Shakespeare> {
-    const { join } = await import('path');
+    const { join, dirname, resolve } = await import('path');
     const { existsSync, readFileSync } = await import('fs');
-    const rootDir = process.cwd();
+    const cwd = process.cwd();
     
     // Try to find external config file first
     const possiblePaths = [
       configPath,
-      join(rootDir, 'shakespeare.config.js'),
-      join(rootDir, 'shakespeare.config.mjs'),
-      join(rootDir, 'shakespeare.config.json'),
-      join(rootDir, '.shakespeare.json')
+      join(cwd, 'shakespeare.config.js'),
+      join(cwd, 'shakespeare.config.mjs'),
+      join(cwd, 'shakespeare.config.json'),
+      join(cwd, '.shakespeare.json')
     ].filter(Boolean);
     
     for (const configFile of possiblePaths) {
@@ -847,8 +848,17 @@ export class Shakespeare {
           
           try {
             // Normalize configuration using versioning system
-            const normalizedConfig = normalizeConfig(config, rootDir);
-            const shakespeare = await Shakespeare.create(normalizedConfig);
+            const normalizedConfig = normalizeConfig(config);
+            
+            // The root directory is the directory containing the config file
+            const configDir = dirname(resolve(configFile!));
+            
+            // Resolve dbPath relative to config file location if provided
+            if (normalizedConfig.dbPath) {
+              normalizedConfig.dbPath = resolve(configDir, normalizedConfig.dbPath);
+            }
+            
+            const shakespeare = await Shakespeare.create(configDir, normalizedConfig);
             return shakespeare;
           } catch (error) {
             if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
@@ -866,14 +876,15 @@ export class Shakespeare {
     
     // Try to load configuration from content database
     try {
-      const dbPath = join(rootDir, '.shakespeare', 'content-db.json');
+      const dbPath = join(cwd, '.shakespeare', 'content-db.json');
       if (existsSync(dbPath)) {
         const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
         if (db.config) {
           try {
             // Normalize database configuration using versioning system
-            const normalizedConfig = normalizeConfig(db.config, rootDir);
-            const shakespeare = await Shakespeare.create(normalizedConfig);
+            const normalizedConfig = normalizeConfig(db.config);
+            // Use current working directory as root when loading from database
+            const shakespeare = await Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
           } catch (error) {
             if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
@@ -888,17 +899,16 @@ export class Shakespeare {
       new ShakespeareLogger().warn(`Failed to load config from database: ${error}`);
     }
     
-    // Fallback to default configuration
-    return await Shakespeare.create();
+    // Fallback to default configuration with current working directory
+    return await Shakespeare.create(cwd);
   }
 
   /**
    * Convert WorkflowConfig to ShakespeareConfig
    */
-  static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig, rootDir: string): Promise<ShakespeareConfigV2> {
+  static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig): Promise<ShakespeareConfigV2> {
     const config: ShakespeareConfigV2 = {
       version: 2,
-      rootDir,
       verbose: workflowConfig.verbose,
       logLevel: workflowConfig.logLevel
     };

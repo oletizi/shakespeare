@@ -133,7 +133,7 @@ export function migrateV1ToV2(v1Config: ShakespeareConfigV1): ShakespeareConfigV
 /**
  * Normalize any configuration to V2 format
  */
-export function normalizeConfig(rawConfig: any, rootDir?: string): ShakespeareConfigV2 {
+export function normalizeConfig(rawConfig: any): ShakespeareConfigV2 {
   const version = detectConfigVersion(rawConfig);
   validateConfig(rawConfig, version);
   
@@ -153,11 +153,6 @@ export function normalizeConfig(rawConfig: any, rootDir?: string): ShakespeareCo
     }
     default:
       throw new UnsupportedConfigVersionError(version);
-  }
-  
-  // Set rootDir if provided
-  if (rootDir) {
-    config.rootDir = rootDir;
   }
   
   return config;

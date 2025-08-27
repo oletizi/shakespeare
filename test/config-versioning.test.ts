@@ -155,13 +155,12 @@ describe('Configuration Versioning System', () => {
         logLevel: 'debug'
       };
 
-      const normalized = normalizeConfig(v1Config, '/test/root');
+      const normalized = normalizeConfig(v1Config);
       
       expect(normalized.version).toBe(2);
       expect(normalized.model).toBe('gemini-1.5-flash-8b');
       expect(normalized.verbose).toBe(true);
       expect(normalized.logLevel).toBe('debug');
-      expect(normalized.rootDir).toBe('/test/root');
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('legacy V1 configuration'));
       
       consoleSpy.mockRestore();
@@ -176,12 +175,11 @@ describe('Configuration Versioning System', () => {
         verbose: true
       };
 
-      const normalized = normalizeConfig(v2Config, '/test/root');
+      const normalized = normalizeConfig(v2Config);
       
       expect(normalized.version).toBe(2);
       expect(normalized.model).toBe('claude-3-5-sonnet');
       expect(normalized.verbose).toBe(true);
-      expect(normalized.rootDir).toBe('/test/root');
       expect(consoleSpy).not.toHaveBeenCalled();
       
       consoleSpy.mockRestore();

@@ -116,17 +116,15 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
   describe('Bug Fix 2: Configuration Object Not Accessible', () => {
     it('should expose configuration object on Shakespeare instance', async () => {
       const config = {
-        rootDir: testDir,
         verbose: true,
         contentCollection: 'astro' as const,
         model: 'gpt-4o-mini',
         provider: 'openai'
       };
 
-      const shakespeare = await Shakespeare.create(config);
+      const shakespeare = await Shakespeare.create(testDir, config);
       
       expect(shakespeare.config).toBeDefined();
-      expect(shakespeare.config.rootDir).toBe(testDir);
       expect(shakespeare.config.verbose).toBe(true);
       expect(shakespeare.config.contentCollection).toBe('astro');
       expect(shakespeare.config.model).toBe('gpt-4o-mini');
@@ -139,8 +137,7 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
         model: 'claude-3-5-sonnet'
       };
 
-      const shakespeare = await Shakespeare.create({
-        rootDir: testDir,
+      const shakespeare = await Shakespeare.create(testDir, {
         modelOptions
       });
       
@@ -190,8 +187,7 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
 
   describe('Bug Fix 3: Verbose and Model Settings Not Reflected', () => {
     it('should properly reflect verbose settings in instance', async () => {
-      const shakespeare = await Shakespeare.create({
-        rootDir: testDir,
+      const shakespeare = await Shakespeare.create(testDir, {
         verbose: true
       });
       
@@ -200,8 +196,7 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
     });
 
     it('should allow changing verbose setting and reflect in config', async () => {
-      const shakespeare = await Shakespeare.create({
-        rootDir: testDir,
+      const shakespeare = await Shakespeare.create(testDir, {
         verbose: false
       });
       
@@ -253,8 +248,7 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
         model: 'llama-3.1-8b'
       };
 
-      const shakespeare = await Shakespeare.create({
-        rootDir: testDir,
+      const shakespeare = await Shakespeare.create(testDir, {
         modelOptions,
         verbose: true
       });
