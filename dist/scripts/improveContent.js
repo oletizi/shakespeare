@@ -951,7 +951,7 @@ function migrateV1ToV2(v1Config) {
   }
   return v2Config;
 }
-function normalizeConfig(rawConfig, rootDir) {
+function normalizeConfig(rawConfig) {
   const version = detectConfigVersion(rawConfig);
   validateConfig(rawConfig, version);
   let config;
@@ -969,9 +969,6 @@ function normalizeConfig(rawConfig, rootDir) {
     default:
       throw new UnsupportedConfigVersionError(version);
   }
-  if (rootDir) {
-    config.rootDir = rootDir;
-  }
   return config;
 }
 
@@ -986,7 +983,6 @@ var Shakespeare = class _Shakespeare {
     this.logger = new ShakespeareLogger();
     this.config = {
       version: 2,
-      rootDir,
       dbPath,
       contentCollection: options.contentCollection,
       verbose: false,
@@ -1536,9 +1532,10 @@ var Shakespeare = class _Shakespeare {
   // ========== STATIC FACTORY METHODS ==========
   /**
    * Create Shakespeare instance with smart defaults and auto-detection
+   * @param rootDir - The root directory to operate in
+   * @param config - Configuration options
    */
-  static async create(config = {}) {
-    const rootDir = config.rootDir || process.cwd();
+  static async create(rootDir, config = {}) {
     const dbPath = config.dbPath;
     const detectedType = await detectProjectType(rootDir);
     const contentCollection = config.contentCollection || detectedType;
@@ -1568,15 +1565,15 @@ var Shakespeare = class _Shakespeare {
    * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath) {
-    const { join } = await import("path");
+    const { join, dirname, resolve } = await import("path");
     const { existsSync, readFileSync } = await import("fs");
-    const rootDir = process.cwd();
+    const cwd = process.cwd();
     const possiblePaths = [
       configPath,
-      join(rootDir, "shakespeare.config.js"),
-      join(rootDir, "shakespeare.config.mjs"),
-      join(rootDir, "shakespeare.config.json"),
-      join(rootDir, ".shakespeare.json")
+      join(cwd, "shakespeare.config.js"),
+      join(cwd, "shakespeare.config.mjs"),
+      join(cwd, "shakespeare.config.json"),
+      join(cwd, ".shakespeare.json")
     ].filter(Boolean);
     for (const configFile of possiblePaths) {
       try {
@@ -1589,8 +1586,12 @@ var Shakespeare = class _Shakespeare {
             config = configModule.default || configModule;
           }
           try {
-            const normalizedConfig = normalizeConfig(config, rootDir);
-            const shakespeare = await _Shakespeare.create(normalizedConfig);
+            const normalizedConfig = normalizeConfig(config);
+            const configDir = dirname(resolve(configFile));
+            if (normalizedConfig.dbPath) {
+              normalizedConfig.dbPath = resolve(configDir, normalizedConfig.dbPath);
+            }
+            const shakespeare = await _Shakespeare.create(configDir, normalizedConfig);
             return shakespeare;
           } catch (error) {
             if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
@@ -1605,13 +1606,13 @@ var Shakespeare = class _Shakespeare {
       }
     }
     try {
-      const dbPath = join(rootDir, ".shakespeare", "content-db.json");
+      const dbPath = join(cwd, ".shakespeare", "content-db.json");
       if (existsSync(dbPath)) {
         const db = JSON.parse(readFileSync(dbPath, "utf-8"));
         if (db.config) {
           try {
-            const normalizedConfig = normalizeConfig(db.config, rootDir);
-            const shakespeare = await _Shakespeare.create(normalizedConfig);
+            const normalizedConfig = normalizeConfig(db.config);
+            const shakespeare = await _Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
           } catch (error) {
             if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
@@ -1625,15 +1626,14 @@ var Shakespeare = class _Shakespeare {
     } catch (error) {
       new ShakespeareLogger().warn(`Failed to load config from database: ${error}`);
     }
-    return await _Shakespeare.create();
+    return await _Shakespeare.create(cwd);
   }
   /**
    * Convert WorkflowConfig to ShakespeareConfig
    */
-  static async workflowConfigToShakespeareConfig(workflowConfig, rootDir) {
+  static async workflowConfigToShakespeareConfig(workflowConfig) {
     const config = {
       version: 2,
-      rootDir,
       verbose: workflowConfig.verbose,
       logLevel: workflowConfig.logLevel
     };

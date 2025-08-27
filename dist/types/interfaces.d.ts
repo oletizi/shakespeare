@@ -246,9 +246,7 @@ export interface ShakespeareConfigV2 {
     verbose?: boolean;
     /** Log level for structured logging */
     logLevel?: 'error' | 'warn' | 'info' | 'debug';
-    /** Project root directory */
-    rootDir?: string;
-    /** Database path override */
+    /** Database path override (relative to config file location) */
     dbPath?: string;
     /** Content collection override */
     contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;

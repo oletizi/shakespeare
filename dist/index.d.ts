@@ -156,8 +156,10 @@ export declare class Shakespeare {
     }>;
     /**
      * Create Shakespeare instance with smart defaults and auto-detection
+     * @param rootDir - The root directory to operate in
+     * @param config - Configuration options
      */
-    static create(config?: ShakespeareConfigV2): Promise<Shakespeare>;
+    static create(rootDir: string, config?: ShakespeareConfigV2): Promise<Shakespeare>;
     /**
      * Create Shakespeare from configuration file or database config
      */
@@ -165,7 +167,7 @@ export declare class Shakespeare {
     /**
      * Convert WorkflowConfig to ShakespeareConfig
      */
-    static workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig, rootDir: string): Promise<ShakespeareConfigV2>;
+    static workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig): Promise<ShakespeareConfigV2>;
     /**
      * Save workflow configuration to the content database
      */

@@ -29,7 +29,7 @@ export declare function migrateV1ToV2(v1Config: ShakespeareConfigV1): Shakespear
 /**
  * Normalize any configuration to V2 format
  */
-export declare function normalizeConfig(rawConfig: any, rootDir?: string): ShakespeareConfigV2;
+export declare function normalizeConfig(rawConfig: any): ShakespeareConfigV2;
 /**
  * Check if configuration needs migration
  */
