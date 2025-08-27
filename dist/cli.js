@@ -1416,31 +1416,13 @@ var Shakespeare = class _Shakespeare {
   }
   /**
    * Review/score a specific content file
+   * This is a convenience method that delegates to batch processing with a single item
    */
   async reviewContent(path4) {
-    const database = this._db.getData();
-    const entry = database.entries[path4];
-    if (!entry) {
-      throw new Error(`Content not found: ${path4}`);
+    const result = await this.reviewContentBatch([path4], 1);
+    if (result.failed.length > 0) {
+      throw new Error(result.failed[0].error);
     }
-    if (entry.status !== "needs_review") {
-      throw new Error(`Content has already been reviewed: ${path4}`);
-    }
-    const content = await this.scanner.readContent(path4);
-    const analysis = await this.ai.scoreContent(content);
-    const updatedEntry = {
-      ...entry,
-      currentScores: analysis.analysis.scores,
-      lastReviewDate: (/* @__PURE__ */ new Date()).toISOString(),
-      status: this.determineStatus(analysis.analysis.scores),
-      reviewHistory: [{
-        date: (/* @__PURE__ */ new Date()).toISOString(),
-        scores: analysis.analysis.scores,
-        improvements: []
-      }]
-    };
-    await this._db.updateEntry(path4, () => updatedEntry);
-    await this._db.save();
   }
   /**
    * Get the entry with the lowest average score (excludes unreviewed content)
@@ -1462,71 +1444,13 @@ var Shakespeare = class _Shakespeare {
   }
   /**
    * Improve content at the specified path
+   * This is a convenience method that delegates to batch processing with a single item
    */
   async improveContent(filePath) {
-    await this._db.load();
-    const database = this._db.getData();
-    this.logger.debug(`\u{1F50D} Looking for entry with path: ${filePath}`);
-    this.logger.debug(`\u{1F50D} Available database entries: ${Object.keys(database.entries).join(", ")}`);
-    let entry = database.entries[filePath];
-    if (!entry) {
-      const absolutePath = path3.resolve(this.rootDir, filePath);
-      this.logger.debug(`\u{1F50D} Trying absolute path: ${absolutePath}`);
-      entry = database.entries[absolutePath];
+    const result = await this.improveContentBatch([filePath], 1);
+    if (result.failed.length > 0) {
+      throw new Error(result.failed[0].error);
     }
-    if (!entry) {
-      throw new Error(`No content found at path: ${filePath}. Available paths: ${Object.keys(database.entries).join(", ")}`);
-    }
-    const absoluteFilePath = entry.path;
-    this.logger.debug(`\u{1F50D} Using absolute path from entry: ${absoluteFilePath}`);
-    const content = await this.scanner.readContent(absoluteFilePath);
-    const analysis = await this.ai.scoreContent(content);
-    this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
-    const improveOptions = await this.getWorkflowModelOptions("improve");
-    const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
-    const improvedContent = response.content;
-    this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
-    if (improvedContent === content) {
-      this.logger.warn("\u26A0\uFE0F  Warning: Improved content is identical to original");
-    }
-    const newScoringResult = await this.ai.scoreContent(improvedContent);
-    const newAnalysis = newScoringResult.analysis;
-    try {
-      if (!path3.isAbsolute(absoluteFilePath)) {
-        throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
-      }
-      this.logger.debug(`\u{1F50D} Writing improved content to: ${absoluteFilePath}`);
-      await fs3.writeFile(absoluteFilePath, improvedContent, "utf-8");
-      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${absoluteFilePath}`);
-    } catch (writeError) {
-      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
-      this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
-      throw writeError;
-    }
-    const databaseKey = Object.keys(database.entries).find((key) => database.entries[key] === entry);
-    if (!databaseKey) {
-      throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
-    }
-    await this._db.updateEntry(databaseKey, (entry2) => {
-      if (!entry2) {
-        throw new Error(`Entry not found for path: ${databaseKey}`);
-      }
-      return {
-        ...entry2,
-        currentScores: newAnalysis.scores,
-        lastReviewDate: (/* @__PURE__ */ new Date()).toISOString(),
-        improvementIterations: entry2.improvementIterations + 1,
-        status: this.determineStatus(newAnalysis.scores),
-        reviewHistory: [
-          ...entry2.reviewHistory,
-          {
-            date: (/* @__PURE__ */ new Date()).toISOString(),
-            scores: newAnalysis.scores,
-            improvements: Object.values(analysis.analysis).flatMap((a) => a.suggestions)
-          }
-        ]
-      };
-    });
   }
   /**
    * Determine content status based on scores
@@ -1593,7 +1517,29 @@ var Shakespeare = class _Shakespeare {
       const batchPromises = batch.map(async (filePath) => {
         try {
           this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)}`, "verbose");
-          await this.reviewContent(filePath);
+          const database = this._db.getData();
+          const entry = database.entries[filePath];
+          if (!entry) {
+            throw new Error(`Content not found: ${filePath}`);
+          }
+          if (entry.status !== "needs_review") {
+            throw new Error(`Content has already been reviewed: ${filePath}`);
+          }
+          const content = await this.scanner.readContent(filePath);
+          const analysis = await this.ai.scoreContent(content);
+          const updatedEntry = {
+            ...entry,
+            currentScores: analysis.analysis.scores,
+            lastReviewDate: (/* @__PURE__ */ new Date()).toISOString(),
+            status: this.determineStatus(analysis.analysis.scores),
+            reviewHistory: [{
+              date: (/* @__PURE__ */ new Date()).toISOString(),
+              scores: analysis.analysis.scores,
+              improvements: []
+            }]
+          };
+          await this._db.updateEntry(filePath, () => updatedEntry);
+          await this._db.save();
           return { path: filePath, success: true };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1650,7 +1596,69 @@ var Shakespeare = class _Shakespeare {
       const batchPromises = batch.map(async (filePath) => {
         try {
           this.log(`\u{1F4DD} Improving ${path3.basename(filePath)}`, "verbose");
-          await this.improveContent(filePath);
+          await this._db.load();
+          const database = this._db.getData();
+          this.logger.debug(`\u{1F50D} Looking for entry with path: ${filePath}`);
+          this.logger.debug(`\u{1F50D} Available database entries: ${Object.keys(database.entries).join(", ")}`);
+          let entry = database.entries[filePath];
+          if (!entry) {
+            const absolutePath = path3.resolve(this.rootDir, filePath);
+            this.logger.debug(`\u{1F50D} Trying absolute path: ${absolutePath}`);
+            entry = database.entries[absolutePath];
+          }
+          if (!entry) {
+            throw new Error(`No content found at path: ${filePath}. Available paths: ${Object.keys(database.entries).join(", ")}`);
+          }
+          const absoluteFilePath = entry.path;
+          this.logger.debug(`\u{1F50D} Using absolute path from entry: ${absoluteFilePath}`);
+          const content = await this.scanner.readContent(absoluteFilePath);
+          const analysis = await this.ai.scoreContent(content);
+          this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
+          const improveOptions = await this.getWorkflowModelOptions("improve");
+          const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+          const improvedContent = response.content;
+          this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
+          if (improvedContent === content) {
+            this.logger.warn("\u26A0\uFE0F  Warning: Improved content is identical to original");
+          }
+          const newScoringResult = await this.ai.scoreContent(improvedContent);
+          const newAnalysis = newScoringResult.analysis;
+          try {
+            if (!path3.isAbsolute(absoluteFilePath)) {
+              throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
+            }
+            this.logger.debug(`\u{1F50D} Writing improved content to: ${absoluteFilePath}`);
+            await fs3.writeFile(absoluteFilePath, improvedContent, "utf-8");
+            this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${absoluteFilePath}`);
+          } catch (writeError) {
+            const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+            this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
+            throw writeError;
+          }
+          const databaseKey = Object.keys(database.entries).find((key) => database.entries[key] === entry);
+          if (!databaseKey) {
+            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
+          }
+          await this._db.updateEntry(databaseKey, (entry2) => {
+            if (!entry2) {
+              throw new Error(`Entry not found for path: ${databaseKey}`);
+            }
+            return {
+              ...entry2,
+              currentScores: newAnalysis.scores,
+              lastReviewDate: (/* @__PURE__ */ new Date()).toISOString(),
+              improvementIterations: entry2.improvementIterations + 1,
+              status: this.determineStatus(newAnalysis.scores),
+              reviewHistory: [
+                ...entry2.reviewHistory,
+                {
+                  date: (/* @__PURE__ */ new Date()).toISOString(),
+                  scores: newAnalysis.scores,
+                  improvements: Object.values(analysis.analysis).flatMap((a) => a.suggestions)
+                }
+              ]
+            };
+          });
           return { path: filePath, success: true };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);

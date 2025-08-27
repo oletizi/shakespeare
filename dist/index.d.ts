@@ -90,6 +90,7 @@ export declare class Shakespeare {
     getContentByStatus(status: ContentStatus): ContentEntry[];
     /**
      * Review/score a specific content file
+     * This is a convenience method that delegates to batch processing with a single item
      */
     reviewContent(path: string): Promise<void>;
     /**
@@ -98,6 +99,7 @@ export declare class Shakespeare {
     getWorstScoringContent(): string | null;
     /**
      * Improve content at the specified path
+     * This is a convenience method that delegates to batch processing with a single item
      */
     improveContent(filePath: string): Promise<void>;
     /**

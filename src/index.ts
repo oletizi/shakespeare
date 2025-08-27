@@ -254,38 +254,15 @@ export class Shakespeare {
 
   /**
    * Review/score a specific content file
+   * This is a convenience method that delegates to batch processing with a single item
    */
   async reviewContent(path: string): Promise<void> {
-    const database = this._db.getData();
-    const entry = database.entries[path];
+    const result = await this.reviewContentBatch([path], 1);
     
-    if (!entry) {
-      throw new Error(`Content not found: ${path}`);
+    // If the single item failed, throw the error to maintain the original API contract
+    if (result.failed.length > 0) {
+      throw new Error(result.failed[0].error);
     }
-
-    if (entry.status !== 'needs_review') {
-      throw new Error(`Content has already been reviewed: ${path}`);
-    }
-
-    // Score the content with AI
-    const content = await this.scanner.readContent(path);
-    const analysis = await this.ai.scoreContent(content);
-
-    // Update entry with scores and proper status
-    const updatedEntry: ContentEntry = {
-      ...entry,
-      currentScores: analysis.analysis.scores,
-      lastReviewDate: new Date().toISOString(),
-      status: this.determineStatus(analysis.analysis.scores),
-      reviewHistory: [{
-        date: new Date().toISOString(),
-        scores: analysis.analysis.scores,
-        improvements: []
-      }]
-    };
-
-    await this._db.updateEntry(path, () => updatedEntry);
-    await this._db.save();
   }
 
   /**
@@ -317,102 +294,15 @@ export class Shakespeare {
 
   /**
    * Improve content at the specified path
+   * This is a convenience method that delegates to batch processing with a single item
    */
   async improveContent(filePath: string): Promise<void> {
-    // Ensure database is loaded
-    await this._db.load();
+    const result = await this.improveContentBatch([filePath], 1);
     
-    const database = this._db.getData();
-    this.logger.debug(`🔍 Looking for entry with path: ${filePath}`);
-    this.logger.debug(`🔍 Available database entries: ${Object.keys(database.entries).join(', ')}`);
-    
-    // Try to find the entry with the exact path first
-    let entry = database.entries[filePath];
-    
-    // If not found, try to resolve the path to absolute and look again
-    if (!entry) {
-      const absolutePath = path.resolve(this.rootDir, filePath);
-      this.logger.debug(`🔍 Trying absolute path: ${absolutePath}`);
-      entry = database.entries[absolutePath];
+    // If the single item failed, throw the error to maintain the original API contract
+    if (result.failed.length > 0) {
+      throw new Error(result.failed[0].error);
     }
-
-    if (!entry) {
-      throw new Error(`No content found at path: ${filePath}. Available paths: ${Object.keys(database.entries).join(', ')}`);
-    }
-
-    // Use the absolute path from the entry for all file operations
-    const absoluteFilePath = entry.path;
-    this.logger.debug(`🔍 Using absolute path from entry: ${absoluteFilePath}`);
-    
-    // Read current content
-    const content = await this.scanner.readContent(absoluteFilePath);
-    
-    // Get current analysis
-    const analysis = await this.ai.scoreContent(content);
-    
-    // Generate improved content - single code path, no fallbacks
-    this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
-    
-    // Get workflow-specific model options for improvement
-    const improveOptions = await this.getWorkflowModelOptions('improve');
-    
-    // Call the unified improveContent method that returns AIResponse
-    const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
-    const improvedContent = response.content;
-    
-    this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
-    
-    // Validation is now handled inside ai.improveContent(), but we can still check for identical content
-    if (improvedContent === content) {
-      this.logger.warn('⚠️  Warning: Improved content is identical to original');
-    }
-    
-    // Score the improved content
-    const newScoringResult = await this.ai.scoreContent(improvedContent);
-    const newAnalysis = newScoringResult.analysis;
-    
-    // Update the content file
-    try {
-      // Use the absolute path from the entry
-      if (!path.isAbsolute(absoluteFilePath)) {
-        throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
-      }
-      
-      this.logger.debug(`🔍 Writing improved content to: ${absoluteFilePath}`);
-      await fs.writeFile(absoluteFilePath, improvedContent, 'utf-8');
-      this.logger.info(`📄 Successfully wrote improved content to ${absoluteFilePath}`);
-    } catch (writeError) {
-      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
-      this.logger.error(`❌ Failed to write improved content to file: ${errorMessage}`);
-      throw writeError;
-    }
-    
-    // Update database entry - use the path that was found in the database
-    const databaseKey = Object.keys(database.entries).find(key => database.entries[key] === entry);
-    if (!databaseKey) {
-      throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
-    }
-    
-    await this._db.updateEntry(databaseKey, (entry: ContentEntry | undefined) => {
-      if (!entry) {
-        throw new Error(`Entry not found for path: ${databaseKey}`);
-      }
-      return {
-        ...entry,
-        currentScores: newAnalysis.scores,
-        lastReviewDate: new Date().toISOString(),
-        improvementIterations: entry.improvementIterations + 1,
-        status: this.determineStatus(newAnalysis.scores),
-        reviewHistory: [
-          ...entry.reviewHistory,
-          {
-            date: new Date().toISOString(),
-            scores: newAnalysis.scores,
-            improvements: Object.values(analysis.analysis).flatMap(a => a.suggestions)
-          }
-        ]
-      };
-    });
   }
 
   /**
@@ -495,7 +385,39 @@ export class Shakespeare {
       const batchPromises = batch.map(async (filePath) => {
         try {
           this.log(`📊 Reviewing ${path.basename(filePath)}`, 'verbose');
-          await this.reviewContent(filePath);
+          
+          // Business logic moved from reviewContent method
+          const database = this._db.getData();
+          const entry = database.entries[filePath];
+          
+          if (!entry) {
+            throw new Error(`Content not found: ${filePath}`);
+          }
+
+          if (entry.status !== 'needs_review') {
+            throw new Error(`Content has already been reviewed: ${filePath}`);
+          }
+
+          // Score the content with AI
+          const content = await this.scanner.readContent(filePath);
+          const analysis = await this.ai.scoreContent(content);
+
+          // Update entry with scores and proper status
+          const updatedEntry: ContentEntry = {
+            ...entry,
+            currentScores: analysis.analysis.scores,
+            lastReviewDate: new Date().toISOString(),
+            status: this.determineStatus(analysis.analysis.scores),
+            reviewHistory: [{
+              date: new Date().toISOString(),
+              scores: analysis.analysis.scores,
+              improvements: []
+            }]
+          };
+
+          await this._db.updateEntry(filePath, () => updatedEntry);
+          await this._db.save();
+          
           return { path: filePath, success: true };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -568,7 +490,103 @@ export class Shakespeare {
       const batchPromises = batch.map(async (filePath) => {
         try {
           this.log(`📝 Improving ${path.basename(filePath)}`, 'verbose');
-          await this.improveContent(filePath);
+          
+          // Business logic moved from improveContent method
+          // Ensure database is loaded
+          await this._db.load();
+          
+          const database = this._db.getData();
+          this.logger.debug(`🔍 Looking for entry with path: ${filePath}`);
+          this.logger.debug(`🔍 Available database entries: ${Object.keys(database.entries).join(', ')}`);
+          
+          // Try to find the entry with the exact path first
+          let entry = database.entries[filePath];
+          
+          // If not found, try to resolve the path to absolute and look again
+          if (!entry) {
+            const absolutePath = path.resolve(this.rootDir, filePath);
+            this.logger.debug(`🔍 Trying absolute path: ${absolutePath}`);
+            entry = database.entries[absolutePath];
+          }
+
+          if (!entry) {
+            throw new Error(`No content found at path: ${filePath}. Available paths: ${Object.keys(database.entries).join(', ')}`);
+          }
+
+          // Use the absolute path from the entry for all file operations
+          const absoluteFilePath = entry.path;
+          this.logger.debug(`🔍 Using absolute path from entry: ${absoluteFilePath}`);
+          
+          // Read current content
+          const content = await this.scanner.readContent(absoluteFilePath);
+          
+          // Get current analysis
+          const analysis = await this.ai.scoreContent(content);
+          
+          // Generate improved content - single code path, no fallbacks
+          this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
+          
+          // Get workflow-specific model options for improvement
+          const improveOptions = await this.getWorkflowModelOptions('improve');
+          
+          // Call the unified improveContent method that returns AIResponse
+          const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+          const improvedContent = response.content;
+          
+          this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
+          
+          // Validation is now handled inside ai.improveContent(), but we can still check for identical content
+          if (improvedContent === content) {
+            this.logger.warn('⚠️  Warning: Improved content is identical to original');
+          }
+          
+          // Score the improved content
+          const newScoringResult = await this.ai.scoreContent(improvedContent);
+          const newAnalysis = newScoringResult.analysis;
+          
+          // Update the content file
+          try {
+            // Use the absolute path from the entry
+            if (!path.isAbsolute(absoluteFilePath)) {
+              throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
+            }
+            
+            this.logger.debug(`🔍 Writing improved content to: ${absoluteFilePath}`);
+            await fs.writeFile(absoluteFilePath, improvedContent, 'utf-8');
+            this.logger.info(`📄 Successfully wrote improved content to ${absoluteFilePath}`);
+          } catch (writeError) {
+            const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+            this.logger.error(`❌ Failed to write improved content to file: ${errorMessage}`);
+            throw writeError;
+          }
+          
+          // Update database entry - use the path that was found in the database
+          const databaseKey = Object.keys(database.entries).find(key => database.entries[key] === entry);
+          if (!databaseKey) {
+            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
+          }
+          
+          await this._db.updateEntry(databaseKey, (entry: ContentEntry | undefined) => {
+            if (!entry) {
+              throw new Error(`Entry not found for path: ${databaseKey}`);
+            }
+            return {
+              ...entry,
+              currentScores: newAnalysis.scores,
+              lastReviewDate: new Date().toISOString(),
+              improvementIterations: entry.improvementIterations + 1,
+              status: this.determineStatus(newAnalysis.scores),
+              reviewHistory: [
+                ...entry.reviewHistory,
+                {
+                  date: new Date().toISOString(),
+                  scores: newAnalysis.scores,
+                  improvements: Object.values(analysis.analysis).flatMap(a => a.suggestions)
+                }
+              ]
+            };
+          });
+          
           return { path: filePath, success: true };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
