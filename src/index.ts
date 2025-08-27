@@ -968,14 +968,28 @@ export class Shakespeare {
    * Get workflow-specific model options for an operation type
    */
   private async getWorkflowModelOptions(workflowType: 'review' | 'improve' | 'generate'): Promise<AIModelOptions | undefined> {
-    const config = await this.getWorkflowConfig();
-    if (!config) return undefined;
-
-    const provider = config.providers?.[workflowType];
-    const model = config.models?.[workflowType];
-
+    // First check the current instance config (V2 format)
+    if (this.config.taskModelOptions?.[workflowType]) {
+      return this.config.taskModelOptions[workflowType];
+    }
+    
+    // Then check for task-specific models/providers in current config
+    const provider = this.config.providers?.[workflowType];
+    const model = this.config.models?.[workflowType];
+    
     if (provider || model) {
       return { provider, model };
+    }
+    
+    // Fallback to legacy workflow config from database
+    const workflowConfig = await this.getWorkflowConfig();
+    if (workflowConfig) {
+      const legacyProvider = workflowConfig.providers?.[workflowType];
+      const legacyModel = workflowConfig.models?.[workflowType];
+      
+      if (legacyProvider || legacyModel) {
+        return { provider: legacyProvider, model: legacyModel };
+      }
     }
 
     return undefined;

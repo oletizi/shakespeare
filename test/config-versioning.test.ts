@@ -78,11 +78,26 @@ describe('Configuration Versioning System', () => {
       expect(() => validateConfig(invalidV1, 1)).toThrow(InvalidConfigError);
     });
 
-    it('should reject V2 config with V1 properties', () => {
+    it('should accept V2 config with task-specific models (restored functionality)', () => {
+      const validV2 = {
+        version: 2,
+        models: { 
+          review: 'gemini-1.5-flash-8b',
+          improve: 'claude-3-5-sonnet' 
+        },
+        providers: { 
+          review: 'google',
+          improve: 'anthropic' 
+        }
+      };
+      expect(() => validateConfig(validV2, 2)).not.toThrow();
+    });
+
+    it('should reject V2 config with V1-only properties', () => {
       const invalidV2 = {
         version: 2,
         model: 'claude-3-5-sonnet',
-        models: { review: 'claude-3-5-sonnet' } // V1 property
+        workflows: { discover: { resetExisting: true } } // V1-only property
       };
       expect(() => validateConfig(invalidV2, 2)).toThrow(InvalidConfigError);
     });

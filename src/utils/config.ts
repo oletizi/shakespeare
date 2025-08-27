@@ -87,12 +87,12 @@ function validateV1Config(config: any): void {
  * Validate V2 configuration format  
  */
 function validateV2Config(config: any): void {
-  // V2 configs should not have the old models/workflows structure
-  const v1Props = ['models', 'workflows', 'providers'];
-  const hasV1Props = v1Props.some(prop => prop in config);
+  // V2 configs should not have the old workflows structure (but models/providers are now allowed)
+  const v1OnlyProps = ['workflows'];
+  const hasV1OnlyProps = v1OnlyProps.some(prop => prop in config);
   
-  if (hasV1Props) {
-    throw new InvalidConfigError('V2 configuration contains V1-specific properties. Please use version 1 or migrate the configuration.');
+  if (hasV1OnlyProps) {
+    throw new InvalidConfigError('V2 configuration contains V1-specific properties (workflows). Please use version 1 or migrate to the V2 structure.');
   }
 }
 
@@ -107,10 +107,17 @@ export function migrateV1ToV2(v1Config: ShakespeareConfigV1): ShakespeareConfigV
     contentCollection: v1Config.contentCollection
   };
   
-  // rootDir may not be in v1Config, but will be set by normalizeConfig
+  // Migrate task-specific models configuration (preserve the task-specific nature)
+  if (v1Config.models) {
+    v2Config.models = v1Config.models;
+  }
   
-  // Migrate models configuration
-  // Use the 'review' model as the default since it's most commonly used
+  // Migrate task-specific providers configuration
+  if (v1Config.providers) {
+    v2Config.providers = v1Config.providers;
+  }
+  
+  // Also set global model/provider from review task as fallback for backward compatibility
   if (v1Config.models?.review) {
     v2Config.model = v1Config.models.review;
   }
@@ -119,7 +126,7 @@ export function migrateV1ToV2(v1Config: ShakespeareConfigV1): ShakespeareConfigV
     v2Config.provider = v1Config.providers.review;
   }
   
-  // If both provider and model are specified, create modelOptions
+  // Create global modelOptions if global provider and model are specified
   if (v2Config.provider || v2Config.model) {
     v2Config.modelOptions = {
       provider: v2Config.provider,

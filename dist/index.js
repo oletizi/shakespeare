@@ -922,10 +922,10 @@ function validateV1Config(config) {
   }
 }
 function validateV2Config(config) {
-  const v1Props = ["models", "workflows", "providers"];
-  const hasV1Props = v1Props.some((prop) => prop in config);
-  if (hasV1Props) {
-    throw new InvalidConfigError("V2 configuration contains V1-specific properties. Please use version 1 or migrate the configuration.");
+  const v1OnlyProps = ["workflows"];
+  const hasV1OnlyProps = v1OnlyProps.some((prop) => prop in config);
+  if (hasV1OnlyProps) {
+    throw new InvalidConfigError("V2 configuration contains V1-specific properties (workflows). Please use version 1 or migrate to the V2 structure.");
   }
 }
 function migrateV1ToV2(v1Config) {
@@ -935,6 +935,12 @@ function migrateV1ToV2(v1Config) {
     logLevel: v1Config.logLevel,
     contentCollection: v1Config.contentCollection
   };
+  if (v1Config.models) {
+    v2Config.models = v1Config.models;
+  }
+  if (v1Config.providers) {
+    v2Config.providers = v1Config.providers;
+  }
   if (v1Config.models?.review) {
     v2Config.model = v1Config.models.review;
   }
@@ -1677,12 +1683,21 @@ var Shakespeare = class _Shakespeare {
    * Get workflow-specific model options for an operation type
    */
   async getWorkflowModelOptions(workflowType) {
-    const config = await this.getWorkflowConfig();
-    if (!config) return void 0;
-    const provider = config.providers?.[workflowType];
-    const model = config.models?.[workflowType];
+    if (this.config.taskModelOptions?.[workflowType]) {
+      return this.config.taskModelOptions[workflowType];
+    }
+    const provider = this.config.providers?.[workflowType];
+    const model = this.config.models?.[workflowType];
     if (provider || model) {
       return { provider, model };
+    }
+    const workflowConfig = await this.getWorkflowConfig();
+    if (workflowConfig) {
+      const legacyProvider = workflowConfig.providers?.[workflowType];
+      const legacyModel = workflowConfig.models?.[workflowType];
+      if (legacyProvider || legacyModel) {
+        return { provider: legacyProvider, model: legacyModel };
+      }
     }
     return void 0;
   }

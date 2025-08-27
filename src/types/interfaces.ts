@@ -254,12 +254,39 @@ export interface ShakespeareConfigV2 {
   costOptimized?: boolean;
   /** Use quality-first models (expensive, best results) */
   qualityFirst?: boolean;
-  /** Override specific model */
+  /** Override specific model for all operations */
   model?: string;
-  /** Override specific provider */
+  /** Override specific provider for all operations */
   provider?: string;
-  /** Custom model options */
+  /** Custom model options for all operations */
   modelOptions?: AIModelOptions;
+  /** Task-specific model configuration */
+  models?: {
+    /** Model for content review/scoring operations */
+    review?: string;
+    /** Model for content improvement operations */
+    improve?: string;
+    /** Model for content generation operations */
+    generate?: string;
+  };
+  /** Task-specific provider configuration */
+  providers?: {
+    /** Provider for content review/scoring operations */
+    review?: string;
+    /** Provider for content improvement operations */
+    improve?: string;
+    /** Provider for content generation operations */
+    generate?: string;
+  };
+  /** Task-specific model options configuration */
+  taskModelOptions?: {
+    /** Model options for review operations */
+    review?: AIModelOptions;
+    /** Model options for improve operations */
+    improve?: AIModelOptions;
+    /** Model options for generate operations */
+    generate?: AIModelOptions;
+  };
   /** Enable verbose progress reporting */
   verbose?: boolean;
   /** Log level for structured logging */
