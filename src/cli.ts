@@ -14,13 +14,31 @@ import {
   ConfigTemplate,
   CONFIG_TEMPLATES
 } from '@/utils/config-cli';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+/**
+ * Get Shakespeare version from package.json
+ */
+function getVersion(): string {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const packageJsonPath = join(__dirname, '..', 'package.json');
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+    return packageJson.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 
 /**
  * Display CLI help information
  */
 function showHelp() {
   console.log(`
-🎭 Shakespeare CLI - AI-powered content management
+🎭 Shakespeare CLI v${getVersion()} - AI-powered content management
 
 USAGE
   npx shakespeare <command>
@@ -69,7 +87,7 @@ async function main() {
   }
 
   try {
-    console.log('🎭 Shakespeare CLI\n');
+    console.log(`🎭 Shakespeare CLI v${getVersion()}\n`);
     
     // Handle config commands that don't need Shakespeare instance
     if (command === 'config') {

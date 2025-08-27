@@ -289,7 +289,15 @@ var ShakespeareLogger = class {
         format: winston.format.combine(
           winston.format.colorize(),
           winston.format.printf(({ timestamp, level, message, ...meta }) => {
-            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
+            let metaStr = "";
+            if (Object.keys(meta).length) {
+              const metaJson = JSON.stringify(meta);
+              if (metaJson.length > 100) {
+                metaStr = ` ${metaJson.substring(0, 100)}...}`;
+              } else {
+                metaStr = ` ${metaJson}`;
+              }
+            }
             const timeStr = typeof timestamp === "string" ? timestamp.split(" ")[1] : timestamp;
             return `[${timeStr}] ${level}: ${message}${metaStr}`;
           })

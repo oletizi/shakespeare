@@ -291,7 +291,15 @@ var ShakespeareLogger = class {
         format: winston.format.combine(
           winston.format.colorize(),
           winston.format.printf(({ timestamp, level, message, ...meta }) => {
-            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
+            let metaStr = "";
+            if (Object.keys(meta).length) {
+              const metaJson = JSON.stringify(meta);
+              if (metaJson.length > 100) {
+                metaStr = ` ${metaJson.substring(0, 100)}...}`;
+              } else {
+                metaStr = ` ${metaJson}`;
+              }
+            }
             const timeStr = typeof timestamp === "string" ? timestamp.split(" ")[1] : timestamp;
             return `[${timeStr}] ${level}: ${message}${metaStr}`;
           })
@@ -1983,32 +1991,32 @@ var Shakespeare = class _Shakespeare {
    * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath) {
-    const { join: join3, dirname: dirname2, resolve } = await import("path");
-    const { existsSync: existsSync3, readFileSync: readFileSync2 } = await import("fs");
+    const { join: join4, dirname: dirname3, resolve } = await import("path");
+    const { existsSync: existsSync3, readFileSync: readFileSync3 } = await import("fs");
     const cwd = process.cwd();
     const possiblePaths = [
       configPath,
-      join3(cwd, ".shakespeare", "config.json"),
-      join3(cwd, "shakespeare.config.js"),
-      join3(cwd, "shakespeare.config.mjs"),
-      join3(cwd, "shakespeare.config.json"),
-      join3(cwd, ".shakespeare.json")
+      join4(cwd, ".shakespeare", "config.json"),
+      join4(cwd, "shakespeare.config.js"),
+      join4(cwd, "shakespeare.config.mjs"),
+      join4(cwd, "shakespeare.config.json"),
+      join4(cwd, ".shakespeare.json")
     ].filter(Boolean);
     for (const configFile of possiblePaths) {
       try {
         if (existsSync3(configFile)) {
           let config;
           if (configFile.endsWith(".json")) {
-            config = JSON.parse(readFileSync2(configFile, "utf-8"));
+            config = JSON.parse(readFileSync3(configFile, "utf-8"));
           } else {
             const configModule = await import(configFile);
             config = configModule.default || configModule;
           }
           try {
             const normalizedConfig = await this.workflowConfigToShakespeareConfig(config);
-            let configDir = dirname2(resolve(configFile));
+            let configDir = dirname3(resolve(configFile));
             if (configFile.includes(".shakespeare")) {
-              configDir = dirname2(configDir);
+              configDir = dirname3(configDir);
             }
             if (normalizedConfig.dbPath) {
               normalizedConfig.dbPath = resolve(configDir, normalizedConfig.dbPath);
@@ -2031,9 +2039,9 @@ var Shakespeare = class _Shakespeare {
       }
     }
     try {
-      const dbPath = join3(cwd, ".shakespeare", "content-db.json");
+      const dbPath = join4(cwd, ".shakespeare", "content-db.json");
       if (existsSync3(dbPath)) {
-        const db = JSON.parse(readFileSync2(dbPath, "utf-8"));
+        const db = JSON.parse(readFileSync3(dbPath, "utf-8"));
         if (db.config) {
           try {
             const normalizedConfig = await this.workflowConfigToShakespeareConfig(db.config);
@@ -2148,14 +2156,14 @@ var Shakespeare = class _Shakespeare {
 async function detectProjectType(rootDir) {
   try {
     const { existsSync: existsSync3 } = await import("fs");
-    const { join: join3 } = await import("path");
-    if (existsSync3(join3(rootDir, "astro.config.mjs")) || existsSync3(join3(rootDir, "astro.config.js")) || existsSync3(join3(rootDir, "src/content"))) {
+    const { join: join4 } = await import("path");
+    if (existsSync3(join4(rootDir, "astro.config.mjs")) || existsSync3(join4(rootDir, "astro.config.js")) || existsSync3(join4(rootDir, "src/content"))) {
       return "astro";
     }
-    if (existsSync3(join3(rootDir, "next.config.js")) || existsSync3(join3(rootDir, "next.config.mjs"))) {
+    if (existsSync3(join4(rootDir, "next.config.js")) || existsSync3(join4(rootDir, "next.config.mjs"))) {
       return "nextjs";
     }
-    if (existsSync3(join3(rootDir, "gatsby-config.js")) || existsSync3(join3(rootDir, "gatsby-config.ts"))) {
+    if (existsSync3(join4(rootDir, "gatsby-config.js")) || existsSync3(join4(rootDir, "gatsby-config.ts"))) {
       return "gatsby";
     }
     return "custom";
@@ -2435,9 +2443,23 @@ For more information, visit: https://github.com/oletizi/shakespeare
 }
 
 // src/cli.ts
+import { readFileSync as readFileSync2 } from "fs";
+import { join as join3, dirname as dirname2 } from "path";
+import { fileURLToPath } from "url";
+function getVersion() {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname2(__filename);
+    const packageJsonPath = join3(__dirname, "..", "package.json");
+    const packageJson = JSON.parse(readFileSync2(packageJsonPath, "utf8"));
+    return packageJson.version || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 function showHelp() {
   console.log(`
-\u{1F3AD} Shakespeare CLI - AI-powered content management
+\u{1F3AD} Shakespeare CLI v${getVersion()} - AI-powered content management
 
 USAGE
   npx shakespeare <command>
@@ -2480,7 +2502,8 @@ async function main() {
     return;
   }
   try {
-    console.log("\u{1F3AD} Shakespeare CLI\n");
+    console.log(`\u{1F3AD} Shakespeare CLI v${getVersion()}
+`);
     if (command === "config") {
       const subcommand = process.argv[3];
       const options = process.argv.slice(4);
