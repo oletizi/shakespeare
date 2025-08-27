@@ -214,14 +214,18 @@ var ShakespeareLogger = class {
       if (!existsSync(logDir)) {
         try {
           mkdirSync(logDir, { recursive: true });
-          const gitignorePath = join(logDir, ".gitignore");
-          try {
-            writeFileSync(gitignorePath, "# Ignore Shakespeare log files\n*.log*\n");
-          } catch (error) {
-          }
         } catch (error) {
           if (!isTestEnvironment) {
             console.warn(`Warning: Could not create log directory ${logDir}`);
+          }
+        }
+      }
+      if (existsSync(logDir)) {
+        const gitignorePath = join(logDir, ".gitignore");
+        if (!existsSync(gitignorePath)) {
+          try {
+            writeFileSync(gitignorePath, "# Ignore Shakespeare log files\n*.log*\n");
+          } catch (error) {
           }
         }
       }
