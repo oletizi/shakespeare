@@ -1606,6 +1606,180 @@ var Shakespeare = class _Shakespeare {
         break;
     }
   }
+  // ========== BATCH PROCESSING METHODS ==========
+  /**
+   * Review multiple files in batch with optimized AI operations
+   */
+  async reviewContentBatch(filePaths, batchSize = 5) {
+    const startTime = Date.now();
+    this.log(`\u{1F4CA} Starting batch review of ${filePaths.length} files (batch size: ${batchSize})`, "always");
+    await this.initialize();
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      this.log(`\u{1F4E6} Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)`, "always");
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)}`, "verbose");
+          await this.reviewContent(filePath);
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`\u274C Failed to review ${path3.basename(filePath)}: ${errorMessage}`, "always");
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach((result) => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`\u2705 Reviewed: ${path3.basename(result.path)}`, "verbose");
+        } else {
+          failed.push({ path: result.path, error: result.error || "Unknown error" });
+        }
+      });
+      if (i + batchSize < filePaths.length) {
+        this.log("\u23F8\uFE0F  Pausing between batches...", "debug");
+        await new Promise((resolve) => setTimeout(resolve, 1e3));
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Batch review completed: ${successful.length} succeeded, ${failed.length} failed`, "always");
+    if (this.verbose) {
+      this.log(`   \u23F1\uFE0F  Total time: ${duration}ms (${Math.round(duration / 1e3 * 10) / 10}s)`);
+      this.log(`   \u26A1 Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   \u{1F4E6} Files per batch: ${batchSize}`);
+    }
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Improve multiple files in batch
+   */
+  async improveContentBatch(filePaths, batchSize = 3) {
+    const startTime = Date.now();
+    this.log(`\u{1F680} Starting batch improvement of ${filePaths.length} files (batch size: ${batchSize})`, "always");
+    await this.initialize();
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      this.log(`\u{1F4E6} Processing improvement batch ${batchNumber}/${totalBatches} (${batch.length} files)`, "always");
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`\u{1F4DD} Improving ${path3.basename(filePath)}`, "verbose");
+          await this.improveContent(filePath);
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`\u274C Failed to improve ${path3.basename(filePath)}: ${errorMessage}`, "always");
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach((result) => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`\u2705 Improved: ${path3.basename(result.path)}`, "verbose");
+        } else {
+          failed.push({ path: result.path, error: result.error || "Unknown error" });
+        }
+      });
+      if (i + batchSize < filePaths.length) {
+        this.log("\u23F8\uFE0F  Pausing between improvement batches...", "debug");
+        await new Promise((resolve) => setTimeout(resolve, 2e3));
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Batch improvement completed: ${successful.length} succeeded, ${failed.length} failed`, "always");
+    if (this.verbose) {
+      this.log(`   \u23F1\uFE0F  Total time: ${duration}ms (${Math.round(duration / 1e3 * 10) / 10}s)`);
+      this.log(`   \u26A1 Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   \u{1F4E6} Files per batch: ${batchSize}`);
+    }
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Review all content using batch processing for better performance
+   */
+  async reviewAllBatch(batchSize = 5) {
+    const startTime = Date.now();
+    this.log("\u{1F4CA} Starting batch content review...", "always");
+    await this.initialize();
+    const database = this._db.getData();
+    const allEntries = Object.entries(database.entries || {});
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
+    if (contentNeedingReview.length === 0) {
+      this.log("\u2705 No content needs review", "always");
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    this.log(`\u{1F4DD} Found ${contentNeedingReview.length} files needing review`, "always");
+    this.log(`\u{1F4E6} Using batch size: ${batchSize}`, "verbose");
+    const result = await this.reviewContentBatch(contentNeedingReview, batchSize);
+    result.summary.duration = Date.now() - startTime;
+    return result;
+  }
+  /**
+   * Improve worst-scoring content using batch processing
+   */
+  async improveWorstBatch(count = 5, batchSize = 3) {
+    const startTime = Date.now();
+    this.log(`\u{1F680} Starting batch improvement of ${count} worst-scoring content (batch size: ${batchSize})...`, "always");
+    await this.initialize();
+    const database = this._db.getData();
+    const worstFiles = [];
+    const entries = Object.entries(database.entries);
+    const scoredEntries = entries.filter(([, entry]) => entry.status !== "needs_review" && entry.status !== "meets_targets").map(([path4, entry]) => {
+      const scores = Object.values(entry.currentScores);
+      const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+      return { path: path4, avgScore, entry };
+    }).filter(({ avgScore }) => avgScore > 0).sort((a, b) => a.avgScore - b.avgScore);
+    for (let i = 0; i < Math.min(count, scoredEntries.length); i++) {
+      worstFiles.push(scoredEntries[i].path);
+    }
+    if (worstFiles.length === 0) {
+      this.log("\u2705 No content needs improvement", "always");
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    this.log(`\u{1F4CB} Selected ${worstFiles.length} files for improvement:`, "verbose");
+    worstFiles.forEach((file, index) => {
+      const entry = scoredEntries.find((e) => e.path === file);
+      this.log(`   ${index + 1}. ${path3.basename(file)} (score: ${entry?.avgScore.toFixed(1)})`, "verbose");
+    });
+    const result = await this.improveContentBatch(worstFiles, batchSize);
+    result.summary.duration = Date.now() - startTime;
+    return result;
+  }
   // ========== HIGH-LEVEL WORKFLOW METHODS ==========
   /**
    * Discover content and provide detailed reporting
@@ -2347,6 +2521,7 @@ COMMANDS
   discover     Discover and index content files
   review       Review all content that needs analysis
   improve      Improve worst-scoring content
+  batch        Batch processing operations (review, improve)
   status       Show content health status dashboard
   workflow     Run complete workflow (discover \u2192 review \u2192 improve)
   config       Configuration management (init, validate, show)
@@ -2363,6 +2538,8 @@ EXAMPLES
   npx shakespeare discover              # Find and index all content
   npx shakespeare review                # AI review of unreviewed content
   npx shakespeare improve               # Improve lowest-scoring content
+  npx shakespeare batch review          # Batch review with parallel processing
+  npx shakespeare batch improve 10 3    # Batch improve 10 files, 3 at a time
   npx shakespeare status                # Show content health dashboard
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
@@ -2434,6 +2611,77 @@ async function main() {
         console.log("\u{1F680} Running content improvement...");
         await shakespeare.improveWorst();
         break;
+      case "batch":
+        const batchSubcommand = process.argv[3];
+        const batchArgs = process.argv.slice(4);
+        switch (batchSubcommand) {
+          case "review":
+            console.log("\u{1F4E6} Running batch review...");
+            const batchSize = parseInt(batchArgs[0]) || 5;
+            const reviewResult = await shakespeare.reviewAllBatch(batchSize);
+            console.log(`
+\u{1F4CA} Batch Review Results:`);
+            console.log(`   \u2705 Successful: ${reviewResult.successful.length}`);
+            console.log(`   \u274C Failed: ${reviewResult.failed.length}`);
+            console.log(`   \u23F1\uFE0F  Duration: ${Math.round(reviewResult.summary.duration / 1e3)}s`);
+            if (reviewResult.failed.length > 0) {
+              console.log(`
+\u274C Failed files:`);
+              reviewResult.failed.forEach(({ path: path4, error }) => {
+                console.log(`   \u2022 ${path4}: ${error}`);
+              });
+            }
+            break;
+          case "improve":
+            console.log("\u{1F4E6} Running batch improvement...");
+            const count = parseInt(batchArgs[0]) || 5;
+            const improveBatchSize = parseInt(batchArgs[1]) || 3;
+            const improveResult = await shakespeare.improveWorstBatch(count, improveBatchSize);
+            console.log(`
+\u{1F680} Batch Improvement Results:`);
+            console.log(`   \u2705 Successful: ${improveResult.successful.length}`);
+            console.log(`   \u274C Failed: ${improveResult.failed.length}`);
+            console.log(`   \u23F1\uFE0F  Duration: ${Math.round(improveResult.summary.duration / 1e3)}s`);
+            if (improveResult.failed.length > 0) {
+              console.log(`
+\u274C Failed files:`);
+              improveResult.failed.forEach(({ path: path4, error }) => {
+                console.log(`   \u2022 ${path4}: ${error}`);
+              });
+            }
+            break;
+          case "help":
+          case void 0:
+            console.log(`
+\u{1F3AD} Shakespeare Batch Processing Commands
+
+USAGE
+  npx shakespeare batch <subcommand> [options]
+
+SUBCOMMANDS
+  review [batchSize]           Run batch review (default batch size: 5)
+  improve [count] [batchSize]  Run batch improvement (default: 5 files, batch size: 3)
+  help                         Show this help
+
+EXAMPLES
+  npx shakespeare batch review              # Review all with default batch size (5)
+  npx shakespeare batch review 10           # Review all with batch size 10
+  npx shakespeare batch improve             # Improve 5 worst files with batch size 3
+  npx shakespeare batch improve 10 2        # Improve 10 worst files with batch size 2
+
+BENEFITS
+  \u2022 Parallel processing for faster operations
+  \u2022 Controlled concurrency to avoid API rate limits  
+  \u2022 Better cost optimization through batching
+  \u2022 Progress tracking and error handling per batch
+            `);
+            break;
+          default:
+            console.error(`\u274C Unknown batch subcommand: ${batchSubcommand}`);
+            console.log('Run "npx shakespeare batch help" for usage information.');
+            process.exit(1);
+        }
+        break;
       case "status":
         console.log("\u{1F4CA} Content Health Status\n");
         const status = await shakespeare.getStatus();
@@ -2453,10 +2701,13 @@ async function main() {
         }
         if (status.needsReview > 0) {
           console.log("\u{1F504} Recommended Next Steps:");
-          console.log(`   1. Run: npx shakespeare review    # Review ${status.needsReview} files`);
+          console.log(`   1. Run: npx shakespeare review           # Review ${status.needsReview} files`);
+          console.log(`      Or: npx shakespeare batch review      # Batch review for better performance`);
         }
         if (status.needsImprovement > 0) {
-          console.log(`   ${status.needsReview > 0 ? "2" : "1"}. Run: npx shakespeare improve   # Improve ${status.needsImprovement} files`);
+          const stepNum = status.needsReview > 0 ? "2" : "1";
+          console.log(`   ${stepNum}. Run: npx shakespeare improve          # Improve worst-scoring content`);
+          console.log(`      Or: npx shakespeare batch improve     # Batch improve for better performance`);
         }
         if (status.needsReview === 0 && status.needsImprovement === 0) {
           console.log("\u{1F389} All content is up to date!");

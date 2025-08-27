@@ -455,6 +455,243 @@ export class Shakespeare {
     }
   }
 
+  // ========== BATCH PROCESSING METHODS ==========
+
+  /**
+   * Review multiple files in batch with optimized AI operations
+   */
+  async reviewContentBatch(filePaths: string[], batchSize: number = 5): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`📊 Starting batch review of ${filePaths.length} files (batch size: ${batchSize})`, 'always');
+    
+    await this.initialize();
+    const successful: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+    
+    // Process files in batches
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      
+      this.log(`📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)`, 'always');
+      
+      // Process batch concurrently with controlled concurrency
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`📊 Reviewing ${path.basename(filePath)}`, 'verbose');
+          await this.reviewContent(filePath);
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`❌ Failed to review ${path.basename(filePath)}: ${errorMessage}`, 'always');
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      
+      // Wait for batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Collect results
+      batchResults.forEach(result => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`✅ Reviewed: ${path.basename(result.path)}`, 'verbose');
+        } else {
+          failed.push({ path: result.path, error: result.error || 'Unknown error' });
+        }
+      });
+      
+      // Brief pause between batches to avoid overwhelming APIs
+      if (i + batchSize < filePaths.length) {
+        this.log('⏸️  Pausing between batches...', 'debug');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    const duration = Date.now() - startTime;
+    this.log(`🎉 Batch review completed: ${successful.length} succeeded, ${failed.length} failed`, 'always');
+    
+    if (this.verbose) {
+      this.log(`   ⏱️  Total time: ${duration}ms (${Math.round(duration / 1000 * 10) / 10}s)`);
+      this.log(`   ⚡ Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   📦 Files per batch: ${batchSize}`);
+    }
+    
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+
+  /**
+   * Improve multiple files in batch
+   */
+  async improveContentBatch(filePaths: string[], batchSize: number = 3): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`🚀 Starting batch improvement of ${filePaths.length} files (batch size: ${batchSize})`, 'always');
+    
+    await this.initialize();
+    const successful: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+    
+    // Process files in batches (smaller batches for improvement due to higher cost/complexity)
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      
+      this.log(`📦 Processing improvement batch ${batchNumber}/${totalBatches} (${batch.length} files)`, 'always');
+      
+      // Process batch concurrently
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`📝 Improving ${path.basename(filePath)}`, 'verbose');
+          await this.improveContent(filePath);
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`❌ Failed to improve ${path.basename(filePath)}: ${errorMessage}`, 'always');
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      
+      // Wait for batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Collect results
+      batchResults.forEach(result => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`✅ Improved: ${path.basename(result.path)}`, 'verbose');
+        } else {
+          failed.push({ path: result.path, error: result.error || 'Unknown error' });
+        }
+      });
+      
+      // Longer pause between improvement batches (more expensive operations)
+      if (i + batchSize < filePaths.length) {
+        this.log('⏸️  Pausing between improvement batches...', 'debug');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    const duration = Date.now() - startTime;
+    this.log(`🎉 Batch improvement completed: ${successful.length} succeeded, ${failed.length} failed`, 'always');
+    
+    if (this.verbose) {
+      this.log(`   ⏱️  Total time: ${duration}ms (${Math.round(duration / 1000 * 10) / 10}s)`);
+      this.log(`   ⚡ Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   📦 Files per batch: ${batchSize}`);
+    }
+    
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+
+  /**
+   * Review all content using batch processing for better performance
+   */
+  async reviewAllBatch(batchSize: number = 5): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log('📊 Starting batch content review...', 'always');
+    
+    await this.initialize();
+    const database = this._db.getData();
+    const allEntries = Object.entries(database.entries || {});
+    const contentNeedingReview = allEntries
+      .filter(([, entry]) => entry.status === 'needs_review')
+      .map(([path]) => path);
+
+    if (contentNeedingReview.length === 0) {
+      this.log('✅ No content needs review', 'always');
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+
+    this.log(`📝 Found ${contentNeedingReview.length} files needing review`, 'always');
+    this.log(`📦 Using batch size: ${batchSize}`, 'verbose');
+    
+    // Use the batch processing method
+    const result = await this.reviewContentBatch(contentNeedingReview, batchSize);
+    
+    // Update summary with total time
+    result.summary.duration = Date.now() - startTime;
+    
+    return result;
+  }
+
+  /**
+   * Improve worst-scoring content using batch processing
+   */
+  async improveWorstBatch(count: number = 5, batchSize: number = 3): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`🚀 Starting batch improvement of ${count} worst-scoring content (batch size: ${batchSize})...`, 'always');
+    
+    await this.initialize();
+    const database = this._db.getData();
+    
+    // Get worst-scoring files
+    const worstFiles: string[] = [];
+    const entries = Object.entries(database.entries);
+    
+    // Sort by average score (ascending) to get worst first
+    const scoredEntries = entries
+      .filter(([, entry]) => entry.status !== 'needs_review' && entry.status !== 'meets_targets')
+      .map(([path, entry]) => {
+        const scores = Object.values(entry.currentScores);
+        const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+        return { path, avgScore, entry };
+      })
+      .filter(({ avgScore }) => avgScore > 0) // Exclude unreviewed content
+      .sort((a, b) => a.avgScore - b.avgScore);
+    
+    // Take the worst N files
+    for (let i = 0; i < Math.min(count, scoredEntries.length); i++) {
+      worstFiles.push(scoredEntries[i].path);
+    }
+    
+    if (worstFiles.length === 0) {
+      this.log('✅ No content needs improvement', 'always');
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    
+    this.log(`📋 Selected ${worstFiles.length} files for improvement:`, 'verbose');
+    worstFiles.forEach((file, index) => {
+      const entry = scoredEntries.find(e => e.path === file);
+      this.log(`   ${index + 1}. ${path.basename(file)} (score: ${entry?.avgScore.toFixed(1)})`, 'verbose');
+    });
+    
+    // Use batch processing for improvements
+    const result = await this.improveContentBatch(worstFiles, batchSize);
+    
+    // Update summary with total time
+    result.summary.duration = Date.now() - startTime;
+    
+    return result;
+  }
+
   // ========== HIGH-LEVEL WORKFLOW METHODS ==========
 
   /**

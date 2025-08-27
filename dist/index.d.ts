@@ -123,6 +123,22 @@ export declare class Shakespeare {
      */
     private log;
     /**
+     * Review multiple files in batch with optimized AI operations
+     */
+    reviewContentBatch(filePaths: string[], batchSize?: number): Promise<WorkflowResult>;
+    /**
+     * Improve multiple files in batch
+     */
+    improveContentBatch(filePaths: string[], batchSize?: number): Promise<WorkflowResult>;
+    /**
+     * Review all content using batch processing for better performance
+     */
+    reviewAllBatch(batchSize?: number): Promise<WorkflowResult>;
+    /**
+     * Improve worst-scoring content using batch processing
+     */
+    improveWorstBatch(count?: number, batchSize?: number): Promise<WorkflowResult>;
+    /**
      * Discover content and provide detailed reporting
      */
     discoverAndReport(): Promise<WorkflowResult>;

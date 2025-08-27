@@ -1594,6 +1594,180 @@ var Shakespeare = class _Shakespeare {
         break;
     }
   }
+  // ========== BATCH PROCESSING METHODS ==========
+  /**
+   * Review multiple files in batch with optimized AI operations
+   */
+  async reviewContentBatch(filePaths, batchSize = 5) {
+    const startTime = Date.now();
+    this.log(`\u{1F4CA} Starting batch review of ${filePaths.length} files (batch size: ${batchSize})`, "always");
+    await this.initialize();
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      this.log(`\u{1F4E6} Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)`, "always");
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)}`, "verbose");
+          await this.reviewContent(filePath);
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`\u274C Failed to review ${path3.basename(filePath)}: ${errorMessage}`, "always");
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach((result) => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`\u2705 Reviewed: ${path3.basename(result.path)}`, "verbose");
+        } else {
+          failed.push({ path: result.path, error: result.error || "Unknown error" });
+        }
+      });
+      if (i + batchSize < filePaths.length) {
+        this.log("\u23F8\uFE0F  Pausing between batches...", "debug");
+        await new Promise((resolve) => setTimeout(resolve, 1e3));
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Batch review completed: ${successful.length} succeeded, ${failed.length} failed`, "always");
+    if (this.verbose) {
+      this.log(`   \u23F1\uFE0F  Total time: ${duration}ms (${Math.round(duration / 1e3 * 10) / 10}s)`);
+      this.log(`   \u26A1 Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   \u{1F4E6} Files per batch: ${batchSize}`);
+    }
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Improve multiple files in batch
+   */
+  async improveContentBatch(filePaths, batchSize = 3) {
+    const startTime = Date.now();
+    this.log(`\u{1F680} Starting batch improvement of ${filePaths.length} files (batch size: ${batchSize})`, "always");
+    await this.initialize();
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      this.log(`\u{1F4E6} Processing improvement batch ${batchNumber}/${totalBatches} (${batch.length} files)`, "always");
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`\u{1F4DD} Improving ${path3.basename(filePath)}`, "verbose");
+          await this.improveContent(filePath);
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`\u274C Failed to improve ${path3.basename(filePath)}: ${errorMessage}`, "always");
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach((result) => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`\u2705 Improved: ${path3.basename(result.path)}`, "verbose");
+        } else {
+          failed.push({ path: result.path, error: result.error || "Unknown error" });
+        }
+      });
+      if (i + batchSize < filePaths.length) {
+        this.log("\u23F8\uFE0F  Pausing between improvement batches...", "debug");
+        await new Promise((resolve) => setTimeout(resolve, 2e3));
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Batch improvement completed: ${successful.length} succeeded, ${failed.length} failed`, "always");
+    if (this.verbose) {
+      this.log(`   \u23F1\uFE0F  Total time: ${duration}ms (${Math.round(duration / 1e3 * 10) / 10}s)`);
+      this.log(`   \u26A1 Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   \u{1F4E6} Files per batch: ${batchSize}`);
+    }
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Review all content using batch processing for better performance
+   */
+  async reviewAllBatch(batchSize = 5) {
+    const startTime = Date.now();
+    this.log("\u{1F4CA} Starting batch content review...", "always");
+    await this.initialize();
+    const database = this._db.getData();
+    const allEntries = Object.entries(database.entries || {});
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
+    if (contentNeedingReview.length === 0) {
+      this.log("\u2705 No content needs review", "always");
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    this.log(`\u{1F4DD} Found ${contentNeedingReview.length} files needing review`, "always");
+    this.log(`\u{1F4E6} Using batch size: ${batchSize}`, "verbose");
+    const result = await this.reviewContentBatch(contentNeedingReview, batchSize);
+    result.summary.duration = Date.now() - startTime;
+    return result;
+  }
+  /**
+   * Improve worst-scoring content using batch processing
+   */
+  async improveWorstBatch(count = 5, batchSize = 3) {
+    const startTime = Date.now();
+    this.log(`\u{1F680} Starting batch improvement of ${count} worst-scoring content (batch size: ${batchSize})...`, "always");
+    await this.initialize();
+    const database = this._db.getData();
+    const worstFiles = [];
+    const entries = Object.entries(database.entries);
+    const scoredEntries = entries.filter(([, entry]) => entry.status !== "needs_review" && entry.status !== "meets_targets").map(([path4, entry]) => {
+      const scores = Object.values(entry.currentScores);
+      const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+      return { path: path4, avgScore, entry };
+    }).filter(({ avgScore }) => avgScore > 0).sort((a, b) => a.avgScore - b.avgScore);
+    for (let i = 0; i < Math.min(count, scoredEntries.length); i++) {
+      worstFiles.push(scoredEntries[i].path);
+    }
+    if (worstFiles.length === 0) {
+      this.log("\u2705 No content needs improvement", "always");
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    this.log(`\u{1F4CB} Selected ${worstFiles.length} files for improvement:`, "verbose");
+    worstFiles.forEach((file, index) => {
+      const entry = scoredEntries.find((e) => e.path === file);
+      this.log(`   ${index + 1}. ${path3.basename(file)} (score: ${entry?.avgScore.toFixed(1)})`, "verbose");
+    });
+    const result = await this.improveContentBatch(worstFiles, batchSize);
+    result.summary.duration = Date.now() - startTime;
+    return result;
+  }
   // ========== HIGH-LEVEL WORKFLOW METHODS ==========
   /**
    * Discover content and provide detailed reporting

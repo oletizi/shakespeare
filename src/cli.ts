@@ -29,6 +29,7 @@ COMMANDS
   discover     Discover and index content files
   review       Review all content that needs analysis
   improve      Improve worst-scoring content
+  batch        Batch processing operations (review, improve)
   status       Show content health status dashboard
   workflow     Run complete workflow (discover → review → improve)
   config       Configuration management (init, validate, show)
@@ -45,6 +46,8 @@ EXAMPLES
   npx shakespeare discover              # Find and index all content
   npx shakespeare review                # AI review of unreviewed content
   npx shakespeare improve               # Improve lowest-scoring content
+  npx shakespeare batch review          # Batch review with parallel processing
+  npx shakespeare batch improve 10 3    # Batch improve 10 files, 3 at a time
   npx shakespeare status                # Show content health dashboard
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
@@ -134,6 +137,78 @@ async function main() {
         await shakespeare.improveWorst();
         break;
         
+      case 'batch':
+        const batchSubcommand = process.argv[3];
+        const batchArgs = process.argv.slice(4);
+        
+        switch (batchSubcommand) {
+          case 'review':
+            console.log('📦 Running batch review...');
+            const batchSize = parseInt(batchArgs[0]) || 5;
+            const reviewResult = await shakespeare.reviewAllBatch(batchSize);
+            console.log(`\n📊 Batch Review Results:`);
+            console.log(`   ✅ Successful: ${reviewResult.successful.length}`);
+            console.log(`   ❌ Failed: ${reviewResult.failed.length}`);
+            console.log(`   ⏱️  Duration: ${Math.round(reviewResult.summary.duration / 1000)}s`);
+            if (reviewResult.failed.length > 0) {
+              console.log(`\n❌ Failed files:`);
+              reviewResult.failed.forEach(({path, error}) => {
+                console.log(`   • ${path}: ${error}`);
+              });
+            }
+            break;
+            
+          case 'improve':
+            console.log('📦 Running batch improvement...');
+            const count = parseInt(batchArgs[0]) || 5;
+            const improveBatchSize = parseInt(batchArgs[1]) || 3;
+            const improveResult = await shakespeare.improveWorstBatch(count, improveBatchSize);
+            console.log(`\n🚀 Batch Improvement Results:`);
+            console.log(`   ✅ Successful: ${improveResult.successful.length}`);
+            console.log(`   ❌ Failed: ${improveResult.failed.length}`);
+            console.log(`   ⏱️  Duration: ${Math.round(improveResult.summary.duration / 1000)}s`);
+            if (improveResult.failed.length > 0) {
+              console.log(`\n❌ Failed files:`);
+              improveResult.failed.forEach(({path, error}) => {
+                console.log(`   • ${path}: ${error}`);
+              });
+            }
+            break;
+            
+          case 'help':
+          case undefined:
+            console.log(`
+🎭 Shakespeare Batch Processing Commands
+
+USAGE
+  npx shakespeare batch <subcommand> [options]
+
+SUBCOMMANDS
+  review [batchSize]           Run batch review (default batch size: 5)
+  improve [count] [batchSize]  Run batch improvement (default: 5 files, batch size: 3)
+  help                         Show this help
+
+EXAMPLES
+  npx shakespeare batch review              # Review all with default batch size (5)
+  npx shakespeare batch review 10           # Review all with batch size 10
+  npx shakespeare batch improve             # Improve 5 worst files with batch size 3
+  npx shakespeare batch improve 10 2        # Improve 10 worst files with batch size 2
+
+BENEFITS
+  • Parallel processing for faster operations
+  • Controlled concurrency to avoid API rate limits  
+  • Better cost optimization through batching
+  • Progress tracking and error handling per batch
+            `);
+            break;
+            
+          default:
+            console.error(`❌ Unknown batch subcommand: ${batchSubcommand}`);
+            console.log('Run "npx shakespeare batch help" for usage information.');
+            process.exit(1);
+        }
+        break;
+        
       case 'status':
         console.log('📊 Content Health Status\n');
         const status = await shakespeare.getStatus();
@@ -153,13 +228,16 @@ async function main() {
           console.log('');
         }
         
-        // Show next recommended actions
+        // Show next recommended actions with batch options
         if (status.needsReview > 0) {
           console.log('🔄 Recommended Next Steps:');
-          console.log(`   1. Run: npx shakespeare review    # Review ${status.needsReview} files`);
+          console.log(`   1. Run: npx shakespeare review           # Review ${status.needsReview} files`);
+          console.log(`      Or: npx shakespeare batch review      # Batch review for better performance`);
         }
         if (status.needsImprovement > 0) {
-          console.log(`   ${status.needsReview > 0 ? '2' : '1'}. Run: npx shakespeare improve   # Improve ${status.needsImprovement} files`);
+          const stepNum = status.needsReview > 0 ? '2' : '1';
+          console.log(`   ${stepNum}. Run: npx shakespeare improve          # Improve worst-scoring content`);
+          console.log(`      Or: npx shakespeare batch improve     # Batch improve for better performance`);
         }
         if (status.needsReview === 0 && status.needsImprovement === 0) {
           console.log('🎉 All content is up to date!');
