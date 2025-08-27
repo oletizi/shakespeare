@@ -46,3 +46,13 @@
 {"level":"info","message":"📦 Processing improvement batch 1/1 (1 files)","timestamp":"2025-08-27 15:04:00.252"}
 {"level":"info","message":"❌ Failed to improve does-not-exist.md: No content found at path: /Users/orion/work/shakespeare/test/content/does-not-exist.md. Available paths: ","timestamp":"2025-08-27 15:04:00.253"}
 {"level":"info","message":"🎉 Batch improvement completed: 0 succeeded, 1 failed","timestamp":"2025-08-27 15:04:00.253"}
+{"level":"info","message":"🚀 Starting batch improvement of 1 files (batch size: 1)","timestamp":"2025-08-27 15:09:20.220"}
+{"level":"info","message":"📦 Processing improvement batch 1/1 (1 files)","timestamp":"2025-08-27 15:09:20.220"}
+{"level":"info","message":"📝 Attempting to improve content with 45 characters...","timestamp":"2025-08-27 15:09:20.221"}
+{"level":"info","message":"✅ Content improvement successful, got 16 characters back","timestamp":"2025-08-27 15:09:20.221"}
+{"level":"info","message":"📄 Successfully wrote improved content to /Users/orion/work/shakespeare/test/content/typescript-generics.md","timestamp":"2025-08-27 15:09:20.222"}
+{"level":"info","message":"🎉 Batch improvement completed: 1 succeeded, 0 failed","timestamp":"2025-08-27 15:09:20.223"}
+{"level":"info","message":"🚀 Starting batch improvement of 1 files (batch size: 1)","timestamp":"2025-08-27 15:09:20.225"}
+{"level":"info","message":"📦 Processing improvement batch 1/1 (1 files)","timestamp":"2025-08-27 15:09:20.225"}
+{"level":"info","message":"❌ Failed to improve does-not-exist.md: No content found at path: /Users/orion/work/shakespeare/test/content/does-not-exist.md. Available paths: ","timestamp":"2025-08-27 15:09:20.226"}
+{"level":"info","message":"🎉 Batch improvement completed: 0 succeeded, 1 failed","timestamp":"2025-08-27 15:09:20.226"}

@@ -328,11 +328,12 @@ export class AIScorer implements IContentScorer {
       .replace('{analysis}', analysisStr)
       .replace('{content}', content);
     
-    this.logger.debug(`[${executionId}] Improvement request details`, {
+    this.logger.info(`[${executionId}] Full improvement request`, {
       executionId,
       promptLength: prompt.length,
-      promptPreview: prompt.substring(0, 500),
-      operation: 'improve_content_prompt',
+      fullPrompt: prompt,
+      originalContent: content,
+      operation: 'improve_content_full_request',
       originalContentLength: content.length
     });
 
@@ -362,6 +363,7 @@ export class AIScorer implements IContentScorer {
         this.logger.info(`[${executionId}] Received AI response${isFirstModel ? '' : ` (fallback succeeded)`}`, {
           executionId,
           responseLength: response.content.length,
+          fullResponse: response.content,
           modelIndex: i,
           operation: isFirstModel ? 'improve_content_ai_response' : 'improve_content_fallback_success'
         });
@@ -558,6 +560,7 @@ export class AIScorer implements IContentScorer {
       originalLength,
       finalLength,
       lengthRatio,
+      finalContent: improvedContent,
       operation: 'improve_content_completed'
     });
     
