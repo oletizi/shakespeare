@@ -62,6 +62,8 @@ export declare class AIScorer implements IContentScorer {
      * This is the single entry point for content improvement
      */
     improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
+    improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse>;
+    private processAIResponse;
     /**
      * Batch scoring for cost optimization
      */

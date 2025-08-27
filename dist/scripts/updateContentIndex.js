@@ -883,6 +883,16 @@ var AIScorer = class {
    * This is the single entry point for content improvement
    */
   async improveContent(content, analysis, options) {
+    if (options) {
+      return this.improveContentWithModels(content, analysis, [options]);
+    } else {
+      throw new Error("Model options are required for content improvement");
+    }
+  }
+  async improveContentWithModels(content, analysis, modelOptions) {
+    if (!modelOptions || modelOptions.length === 0) {
+      throw new Error("At least one model option must be provided");
+    }
     const executionId = `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     this.logger.info(`[${executionId}] Starting content improvement at ${timestamp}`, {
@@ -903,17 +913,64 @@ var AIScorer = class {
     if (!("promptWithOptions" in this.ai) || typeof this.ai.promptWithOptions !== "function") {
       throw new Error("AI implementation must support promptWithOptions method");
     }
-    this.logger.info(`[${executionId}] Sending AI request`, {
-      executionId,
-      options,
-      operation: "improve_content_ai_request"
-    });
-    const response = await this.ai.promptWithOptions(prompt, options);
-    this.logger.info(`[${executionId}] Received AI response`, {
-      executionId,
-      responseLength: response.content.length,
-      operation: "improve_content_ai_response"
-    });
+    let lastError;
+    for (let i = 0; i < modelOptions.length; i++) {
+      const currentModel = modelOptions[i];
+      const isFirstModel = i === 0;
+      const hasMoreModels = i < modelOptions.length - 1;
+      try {
+        this.logger.info(`[${executionId}] Sending AI request${isFirstModel ? "" : ` (fallback ${i})`}`, {
+          executionId,
+          options: currentModel,
+          modelIndex: i,
+          totalModels: modelOptions.length,
+          operation: isFirstModel ? "improve_content_ai_request" : "improve_content_fallback_request"
+        });
+        const response = await this.ai.promptWithOptions(prompt, currentModel);
+        this.logger.info(`[${executionId}] Received AI response${isFirstModel ? "" : ` (fallback succeeded)`}`, {
+          executionId,
+          responseLength: response.content.length,
+          modelIndex: i,
+          operation: isFirstModel ? "improve_content_ai_response" : "improve_content_fallback_success"
+        });
+        if (!isFirstModel) {
+          console.warn(`\u2705 Fallback successful! Used ${currentModel.provider}/${currentModel.model}
+`);
+        }
+        return this.processAIResponse(response, executionId, content);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message;
+        const isRuntimeError = errorMessage.startsWith("USAGE_CAP:") || errorMessage.startsWith("RUNTIME_ERROR:");
+        this.logger.error(`[${executionId}] Model ${i + 1}/${modelOptions.length} failed`, {
+          executionId,
+          modelIndex: i,
+          model: currentModel,
+          error: errorMessage.substring(0, 200),
+          isRuntimeError,
+          operation: isFirstModel ? "improve_content_primary_failed" : "improve_content_fallback_failed"
+        });
+        if (hasMoreModels && isRuntimeError) {
+          const errorType = errorMessage.startsWith("USAGE_CAP:") ? "Usage Limit" : "Runtime Error";
+          const friendlyMessage = errorMessage.startsWith("USAGE_CAP:") ? errorMessage.replace("USAGE_CAP: ", "") : errorMessage.replace("RUNTIME_ERROR: ", "");
+          if (isFirstModel) {
+            console.warn(`
+\u26A0\uFE0F  Primary AI model failed: ${errorType}`);
+            console.warn(`   ${friendlyMessage}`);
+          } else {
+            console.warn(`\u26A0\uFE0F  Fallback ${i} failed: ${errorType}`);
+          }
+          console.warn(`   Attempting fallback to ${modelOptions[i + 1].provider}/${modelOptions[i + 1].model}...
+`);
+          continue;
+        } else if (!isRuntimeError || !hasMoreModels) {
+          break;
+        }
+      }
+    }
+    throw new Error(`All ${modelOptions.length} model(s) failed. Last error: ${lastError?.message || "Unknown error"}`);
+  }
+  processAIResponse(response, executionId, originalContent) {
     this.logger.debug(`[${executionId}] Full AI response content`, {
       executionId,
       fullResponse: response.content,
@@ -932,6 +989,33 @@ var AIScorer = class {
         operation: "improve_content_empty_error"
       });
       throw new Error("AI returned empty improved content");
+    }
+    const hasGooseError = /Interrupted before the model replied/i.test(improvedContent) || /error: The error above was an exception we were not able to handle/i.test(improvedContent);
+    if (hasGooseError) {
+      const errorResponse = improvedContent;
+      const isUsageCapError = /usage limits|quota|limit exceeded|rate limit/i.test(errorResponse) || /You have reached your specified API usage limits/i.test(errorResponse) || /regain access on \d{4}-\d{2}-\d{2}/i.test(errorResponse) || /invalid_request_error.*usage/i.test(errorResponse);
+      const isAuthError = /authentication|unauthorized|invalid.*key|api.*key.*invalid/i.test(errorResponse) && !isUsageCapError;
+      const isServerError = /500|502|503|504|timeout|server.*error|internal.*error/i.test(errorResponse) || /network.*error|connection.*error/i.test(errorResponse) || /Failed to parse response/i.test(errorResponse);
+      const isRuntimeError = isUsageCapError || isServerError;
+      this.logger.error(`[${executionId}] Goose returned error instead of AI response`, {
+        executionId,
+        errorResponse: errorResponse.substring(0, 1e3),
+        errorType: isUsageCapError ? "usage_cap" : isAuthError ? "authentication" : isServerError ? "server_error" : "unknown",
+        isRuntimeError,
+        operation: "improve_content_goose_error"
+      });
+      if (isUsageCapError) {
+        const usageLimitMatch = errorResponse.match(/You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})/);
+        if (usageLimitMatch) {
+          throw new Error(`USAGE_CAP: API usage limit reached. Access will be restored on ${usageLimitMatch[1]}`);
+        } else {
+          throw new Error(`USAGE_CAP: ${errorResponse.split("\n")[0]}`);
+        }
+      } else if (isRuntimeError) {
+        throw new Error(`RUNTIME_ERROR: ${errorResponse.split("\n")[0]}`);
+      } else {
+        throw new Error(`AI provider failed: ${errorResponse.split("\n")[0]}`);
+      }
     }
     const unwantedPreambles = [
       /^I'll help.*?\n\n/i,
@@ -963,12 +1047,12 @@ var AIScorer = class {
         operation: "improve_content_no_preamble"
       });
     }
-    const originalHasFrontmatter = content.trim().startsWith("---");
+    const originalHasFrontmatter = originalContent.trim().startsWith("---");
     const improvedHasFrontmatter = improvedContent.trim().startsWith("---");
     if (originalHasFrontmatter && !improvedHasFrontmatter) {
-      const frontmatterEndIndex = content.indexOf("---", 3);
+      const frontmatterEndIndex = originalContent.indexOf("---", 3);
       if (frontmatterEndIndex !== -1) {
-        const originalFrontmatter = content.substring(0, frontmatterEndIndex + 3);
+        const originalFrontmatter = originalContent.substring(0, frontmatterEndIndex + 3);
         improvedContent = originalFrontmatter + "\n\n" + improvedContent;
         this.logger.info(`[${executionId}] Restored missing frontmatter`, {
           executionId,
@@ -978,7 +1062,7 @@ var AIScorer = class {
       }
     }
     const finalLength = improvedContent.length;
-    const originalLength = content.length;
+    const originalLength = originalContent.length;
     const lengthRatio = finalLength / originalLength;
     this.logger.info(`[${executionId}] Content improvement completed`, {
       executionId,
@@ -1114,7 +1198,10 @@ var Shakespeare = class _Shakespeare {
         aiScorerOptions = options.aiOptions;
       } else if (options.defaultModelOptions) {
         const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
-        aiScorerOptions = { ai: gooseAI, defaultModelOptions: options.defaultModelOptions };
+        aiScorerOptions = {
+          ai: gooseAI,
+          defaultModelOptions: options.defaultModelOptions
+        };
       } else {
         const gooseAI = new GooseAI(rootDir, {}, this.logger);
         aiScorerOptions = { ai: gooseAI };
@@ -1433,8 +1520,8 @@ var Shakespeare = class _Shakespeare {
           const content = await this.scanner.readContent(absoluteFilePath);
           const analysis = await this.ai.scoreContent(content);
           this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
-          const improveOptions = await this.getWorkflowModelOptions("improve");
-          const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+          const modelOptionsArray = await this.getWorkflowModelOptions("improve");
+          const response = await this.ai.improveContentWithModels(content, analysis.analysis, modelOptionsArray);
           const improvedContent = response.content;
           this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
           if (improvedContent === content) {
@@ -1522,8 +1609,9 @@ var Shakespeare = class _Shakespeare {
    */
   async reviewAllBatch(batchSize = 5) {
     const startTime = Date.now();
-    const reviewOptions = await this.getWorkflowModelOptions("review");
-    const modelInfo = reviewOptions ? `${reviewOptions.provider || "default"}${reviewOptions.model ? `/${reviewOptions.model}` : ""}` : "default";
+    const reviewOptionsArray = await this.getWorkflowModelOptions("review");
+    const primaryModel = reviewOptionsArray[0];
+    const modelInfo = primaryModel ? `${primaryModel.provider || "default"}${primaryModel.model ? `/${primaryModel.model}` : ""}` : "default";
     this.log(`\u{1F4CA} Starting batch content review using ${modelInfo}...`, "always");
     await this.initialize();
     const database = this._db.getData();
@@ -1952,13 +2040,14 @@ var Shakespeare = class _Shakespeare {
       }
     });
     if (!config.model && workflowConfig.models?.review) {
-      const reviewModel = workflowConfig.models.review;
-      if (typeof reviewModel === "string") {
-        config.model = reviewModel;
-      } else {
-        config.model = reviewModel.model;
-        if (reviewModel.provider && !config.provider) {
-          config.provider = reviewModel.provider;
+      const reviewModelConfig = workflowConfig.models.review;
+      const firstReviewModel = Array.isArray(reviewModelConfig) ? reviewModelConfig[0] : reviewModelConfig;
+      if (typeof firstReviewModel === "string") {
+        config.model = firstReviewModel;
+      } else if (firstReviewModel && typeof firstReviewModel === "object") {
+        config.model = firstReviewModel.model;
+        if (firstReviewModel.provider && !config.provider) {
+          config.provider = firstReviewModel.provider;
         }
       }
     }
@@ -1992,10 +2081,11 @@ var Shakespeare = class _Shakespeare {
    * Get model information as a formatted string for display
    */
   async getModelInfoString(workflowType) {
-    const modelOptions = await this.getWorkflowModelOptions(workflowType);
-    if (!modelOptions) return "default";
-    const provider = modelOptions.provider || "default";
-    const model = modelOptions.model ? `/${modelOptions.model}` : "";
+    const modelOptionsArray = await this.getWorkflowModelOptions(workflowType);
+    if (!modelOptionsArray || modelOptionsArray.length === 0) return "default";
+    const primaryModel = modelOptionsArray[0];
+    const provider = primaryModel.provider || "default";
+    const model = primaryModel.model ? `/${primaryModel.model}` : "";
     return `${provider}${model}`;
   }
   /**
@@ -2003,26 +2093,49 @@ var Shakespeare = class _Shakespeare {
    */
   async getWorkflowModelOptions(workflowType) {
     if (this.config.taskModelOptions?.[workflowType]) {
-      return this.config.taskModelOptions[workflowType];
+      return [this.config.taskModelOptions[workflowType]];
     }
     const modelConfig = this.config.models?.[workflowType];
     if (modelConfig) {
-      if (typeof modelConfig === "string") {
-        return { model: modelConfig };
+      if (Array.isArray(modelConfig)) {
+        return modelConfig.map((config) => {
+          if (typeof config === "string") {
+            return { model: config };
+          } else {
+            return {
+              model: config.model,
+              provider: config.provider
+            };
+          }
+        });
+      } else if (typeof modelConfig === "string") {
+        return [{ model: modelConfig }];
       } else {
-        return {
+        return [{
           model: modelConfig.model,
           provider: modelConfig.provider
-        };
+        }];
       }
     }
     const defaults = {
-      review: { model: "gpt-4o-mini", provider: "tetrate" },
-      // Fast, cost-effective for scoring
-      improve: { model: "claude-3-5-sonnet-latest", provider: "tetrate" },
-      // Higher quality for content improvement
-      generate: { model: "claude-3-5-sonnet-latest", provider: "tetrate" }
-      // Higher quality for content generation
+      review: [
+        { model: "gpt-4o-mini", provider: "tetrate" },
+        // Fast, cost-effective for scoring
+        { model: "gemini-1.5-flash-8b", provider: "google" }
+        // Fallback
+      ],
+      improve: [
+        { model: "claude-3-5-sonnet-latest", provider: "tetrate" },
+        // Higher quality for content improvement
+        { model: "gemini-1.5-flash-8b", provider: "google" }
+        // Fallback
+      ],
+      generate: [
+        { model: "claude-3-5-sonnet-latest", provider: "tetrate" },
+        // Higher quality for content generation
+        { model: "gemini-1.5-flash-8b", provider: "google" }
+        // Fallback
+      ]
     };
     return defaults[workflowType];
   }

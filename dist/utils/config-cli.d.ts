@@ -11,18 +11,27 @@ export declare const CONFIG_TEMPLATES: {
         readonly verbose: true;
         readonly logLevel: "info";
         readonly models: {
-            readonly review: {
+            readonly review: readonly [{
                 readonly model: "gpt-4o-mini";
                 readonly provider: "tetrate";
-            };
-            readonly improve: {
+            }, {
+                readonly model: "gemini-1.5-flash-8b";
+                readonly provider: "google";
+            }];
+            readonly improve: readonly [{
                 readonly model: "claude-3-5-sonnet-latest";
                 readonly provider: "tetrate";
-            };
-            readonly generate: {
+            }, {
+                readonly model: "gemini-1.5-flash-8b";
+                readonly provider: "google";
+            }];
+            readonly generate: readonly [{
                 readonly model: "claude-3-5-sonnet-latest";
                 readonly provider: "tetrate";
-            };
+            }, {
+                readonly model: "gemini-1.5-flash-8b";
+                readonly provider: "google";
+            }];
         };
     };
     readonly nextjs: {
@@ -31,18 +40,27 @@ export declare const CONFIG_TEMPLATES: {
         readonly verbose: true;
         readonly logLevel: "info";
         readonly models: {
-            readonly review: {
+            readonly review: readonly [{
                 readonly model: "gpt-4o-mini";
                 readonly provider: "tetrate";
-            };
-            readonly improve: {
+            }, {
+                readonly model: "gemini-1.5-flash-8b";
+                readonly provider: "google";
+            }];
+            readonly improve: readonly [{
                 readonly model: "claude-3-5-sonnet-latest";
                 readonly provider: "tetrate";
-            };
-            readonly generate: {
+            }, {
+                readonly model: "gemini-1.5-flash-8b";
+                readonly provider: "google";
+            }];
+            readonly generate: readonly [{
                 readonly model: "claude-3-5-sonnet-latest";
                 readonly provider: "tetrate";
-            };
+            }, {
+                readonly model: "gemini-1.5-flash-8b";
+                readonly provider: "google";
+            }];
         };
     };
     readonly gatsby: {

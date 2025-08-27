@@ -183,23 +183,32 @@ export interface ShakespeareConfig {
   provider?: string;
   /** Custom model options for all operations */
   modelOptions?: AIModelOptions;
-  /** Task-specific model configuration */
+  /** Task-specific model configuration - can be single model or array for fallback */
   models?: {
-    /** Model and optional provider for content review/scoring operations */
+    /** Model(s) for content review/scoring operations - tries in order on runtime errors */
     review?: {
       model: string;
       provider?: string;
-    } | string;
-    /** Model and optional provider for content improvement operations */
+    } | string | Array<{
+      model: string;
+      provider?: string;
+    } | string>;
+    /** Model(s) for content improvement operations - tries in order on runtime errors */
     improve?: {
       model: string;
       provider?: string;
-    } | string;
-    /** Model and optional provider for content generation operations */
+    } | string | Array<{
+      model: string;
+      provider?: string;
+    } | string>;
+    /** Model(s) for content generation operations - tries in order on runtime errors */
     generate?: {
       model: string;
       provider?: string;
-    } | string;
+    } | string | Array<{
+      model: string;
+      provider?: string;
+    } | string>;
   };
   /** Task-specific model options configuration */
   taskModelOptions?: {

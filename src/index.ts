@@ -107,7 +107,10 @@ export class Shakespeare {
       } else if (options.defaultModelOptions) {
         // Create a GooseAI instance with the specified model options and logger
         const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
-        aiScorerOptions = { ai: gooseAI, defaultModelOptions: options.defaultModelOptions };
+        aiScorerOptions = { 
+          ai: gooseAI, 
+          defaultModelOptions: options.defaultModelOptions
+        };
       } else {
         // Create default GooseAI with logger
         const gooseAI = new GooseAI(rootDir, {}, this.logger);
@@ -523,11 +526,11 @@ export class Shakespeare {
           // Generate improved content - single code path, no fallbacks
           this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
           
-          // Get workflow-specific model options for improvement
-          const improveOptions = await this.getWorkflowModelOptions('improve');
+          // Get workflow-specific model options array for improvement (includes fallbacks)
+          const modelOptionsArray = await this.getWorkflowModelOptions('improve');
           
-          // Call the unified improveContent method that returns AIResponse
-          const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+          // Call the unified improveContent method with model array
+          const response = await (this.ai as any).improveContentWithModels(content, analysis.analysis, modelOptionsArray);
           const improvedContent = response.content;
           
           this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
@@ -640,9 +643,10 @@ export class Shakespeare {
     const startTime = Date.now();
     
     // Get model configuration for review workflow
-    const reviewOptions = await this.getWorkflowModelOptions('review');
-    const modelInfo = reviewOptions ? 
-      `${reviewOptions.provider || 'default'}${reviewOptions.model ? `/${reviewOptions.model}` : ''}` : 
+    const reviewOptionsArray = await this.getWorkflowModelOptions('review');
+    const primaryModel = reviewOptionsArray[0];
+    const modelInfo = primaryModel ? 
+      `${primaryModel.provider || 'default'}${primaryModel.model ? `/${primaryModel.model}` : ''}` : 
       'default';
     
     this.log(`📊 Starting batch content review using ${modelInfo}...`, 'always');
@@ -1209,15 +1213,18 @@ export class Shakespeare {
       }
     });
 
-    // Configure models - use review model as default since it's most commonly used if no global model
+    // Configure models - use first review model as default since it's most commonly used if no global model
     if (!config.model && workflowConfig.models?.review) {
-      const reviewModel = workflowConfig.models.review;
-      if (typeof reviewModel === 'string') {
-        config.model = reviewModel;
-      } else {
-        config.model = reviewModel.model;
-        if (reviewModel.provider && !config.provider) {
-          config.provider = reviewModel.provider;
+      const reviewModelConfig = workflowConfig.models.review;
+      // Handle both old format and new array format
+      const firstReviewModel = Array.isArray(reviewModelConfig) ? reviewModelConfig[0] : reviewModelConfig;
+      
+      if (typeof firstReviewModel === 'string') {
+        config.model = firstReviewModel;
+      } else if (firstReviewModel && typeof firstReviewModel === 'object') {
+        config.model = firstReviewModel.model;
+        if (firstReviewModel.provider && !config.provider) {
+          config.provider = firstReviewModel.provider;
         }
       }
     }
@@ -1258,44 +1265,66 @@ export class Shakespeare {
    * Get model information as a formatted string for display
    */
   async getModelInfoString(workflowType: 'review' | 'improve' | 'generate'): Promise<string> {
-    const modelOptions = await this.getWorkflowModelOptions(workflowType);
-    if (!modelOptions) return 'default';
+    const modelOptionsArray = await this.getWorkflowModelOptions(workflowType);
+    if (!modelOptionsArray || modelOptionsArray.length === 0) return 'default';
     
-    const provider = modelOptions.provider || 'default';
-    const model = modelOptions.model ? `/${modelOptions.model}` : '';
+    const primaryModel = modelOptionsArray[0];
+    const provider = primaryModel.provider || 'default';
+    const model = primaryModel.model ? `/${primaryModel.model}` : '';
     return `${provider}${model}`;
   }
 
   /**
    * Get workflow-specific model options for an operation type
    */
-  private async getWorkflowModelOptions(workflowType: 'review' | 'improve' | 'generate'): Promise<AIModelOptions | undefined> {
+  private async getWorkflowModelOptions(workflowType: 'review' | 'improve' | 'generate'): Promise<AIModelOptions[]> {
     // First check the current instance config (V2 format)
     if (this.config.taskModelOptions?.[workflowType]) {
-      return this.config.taskModelOptions[workflowType];
+      return [this.config.taskModelOptions[workflowType]];
     }
     
     // Then check for consolidated models configuration
     const modelConfig = this.config.models?.[workflowType];
     if (modelConfig) {
-      if (typeof modelConfig === 'string') {
+      if (Array.isArray(modelConfig)) {
+        // New array format: try each model in order
+        return modelConfig.map(config => {
+          if (typeof config === 'string') {
+            return { model: config };
+          } else {
+            return {
+              model: config.model,
+              provider: config.provider
+            };
+          }
+        });
+      } else if (typeof modelConfig === 'string') {
         // Backward compatibility: string model name
-        return { model: modelConfig };
+        return [{ model: modelConfig }];
       } else {
-        // New format: object with model and optional provider
-        return {
+        // Single object format: object with model and optional provider
+        return [{
           model: modelConfig.model,
           provider: modelConfig.provider
-        };
+        }];
       }
     }
     
 
-    // Provide sensible defaults when no configuration is found
+    // Provide sensible defaults when no configuration is found (with fallback)
     const defaults = {
-      review: { model: 'gpt-4o-mini', provider: 'tetrate' }, // Fast, cost-effective for scoring
-      improve: { model: 'claude-3-5-sonnet-latest', provider: 'tetrate' },     // Higher quality for content improvement
-      generate: { model: 'claude-3-5-sonnet-latest', provider: 'tetrate' }     // Higher quality for content generation
+      review: [
+        { model: 'gpt-4o-mini', provider: 'tetrate' }, // Fast, cost-effective for scoring
+        { model: 'gemini-1.5-flash-8b', provider: 'google' } // Fallback
+      ],
+      improve: [
+        { model: 'claude-3-5-sonnet-latest', provider: 'tetrate' }, // Higher quality for content improvement
+        { model: 'gemini-1.5-flash-8b', provider: 'google' } // Fallback
+      ],
+      generate: [
+        { model: 'claude-3-5-sonnet-latest', provider: 'tetrate' }, // Higher quality for content generation
+        { model: 'gemini-1.5-flash-8b', provider: 'google' } // Fallback
+      ]
     };
 
     return defaults[workflowType];

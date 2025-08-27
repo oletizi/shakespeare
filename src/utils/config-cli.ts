@@ -17,9 +17,18 @@ export const CONFIG_TEMPLATES = {
     "verbose": true,
     "logLevel": "info" as const,
     "models": {
-      "review": { "model": "gpt-4o-mini", "provider": "tetrate" },
-      "improve": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
-      "generate": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" }
+      "review": [
+        { "model": "gpt-4o-mini", "provider": "tetrate" },
+        { "model": "gemini-1.5-flash-8b", "provider": "google" }
+      ],
+      "improve": [
+        { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
+        { "model": "gemini-1.5-flash-8b", "provider": "google" }
+      ],
+      "generate": [
+        { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
+        { "model": "gemini-1.5-flash-8b", "provider": "google" }
+      ]
     }
   },
   nextjs: {
@@ -28,9 +37,18 @@ export const CONFIG_TEMPLATES = {
     "verbose": true,
     "logLevel": "info" as const,
     "models": {
-      "review": { "model": "gpt-4o-mini", "provider": "tetrate" },
-      "improve": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
-      "generate": { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" }
+      "review": [
+        { "model": "gpt-4o-mini", "provider": "tetrate" },
+        { "model": "gemini-1.5-flash-8b", "provider": "google" }
+      ],
+      "improve": [
+        { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
+        { "model": "gemini-1.5-flash-8b", "provider": "google" }
+      ],
+      "generate": [
+        { "model": "claude-3-5-sonnet-latest", "provider": "tetrate" },
+        { "model": "gemini-1.5-flash-8b", "provider": "google" }
+      ]
     }
   },
   gatsby: {

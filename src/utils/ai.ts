@@ -298,6 +298,18 @@ export class AIScorer implements IContentScorer {
    * This is the single entry point for content improvement
    */
   async improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse> {
+    if (options) {
+      return this.improveContentWithModels(content, analysis, [options]);
+    } else {
+      throw new Error('Model options are required for content improvement');
+    }
+  }
+
+  async improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse> {
+    if (!modelOptions || modelOptions.length === 0) {
+      throw new Error('At least one model option must be provided');
+    }
+    
     // Generate unique execution ID for tracking
     const executionId = `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
@@ -328,19 +340,83 @@ export class AIScorer implements IContentScorer {
       throw new Error('AI implementation must support promptWithOptions method');
     }
 
-    this.logger.info(`[${executionId}] Sending AI request`, {
-      executionId,
-      options: options,
-      operation: 'improve_content_ai_request'
-    });
+    // Try each model in order until one succeeds
+    let lastError: Error | undefined;
+    for (let i = 0; i < modelOptions.length; i++) {
+      const currentModel = modelOptions[i];
+      const isFirstModel = i === 0;
+      const hasMoreModels = i < modelOptions.length - 1;
+      
+      try {
+        this.logger.info(`[${executionId}] Sending AI request${isFirstModel ? '' : ` (fallback ${i})`}`, {
+          executionId,
+          options: currentModel,
+          modelIndex: i,
+          totalModels: modelOptions.length,
+          operation: isFirstModel ? 'improve_content_ai_request' : 'improve_content_fallback_request'
+        });
+        
+        const response = await (this.ai as any).promptWithOptions(prompt, currentModel);
+        
+        this.logger.info(`[${executionId}] Received AI response${isFirstModel ? '' : ` (fallback succeeded)`}`, {
+          executionId,
+          responseLength: response.content.length,
+          modelIndex: i,
+          operation: isFirstModel ? 'improve_content_ai_response' : 'improve_content_fallback_success'
+        });
+        
+        if (!isFirstModel) {
+          console.warn(`✅ Fallback successful! Used ${currentModel.provider}/${currentModel.model}\n`);
+        }
+        
+        // Success! Process and return the response
+        return this.processAIResponse(response, executionId, content);
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // Check if this is a runtime error that should trigger fallback
+        const errorMessage = lastError.message;
+        const isRuntimeError = errorMessage.startsWith('USAGE_CAP:') || errorMessage.startsWith('RUNTIME_ERROR:');
+        
+        this.logger.error(`[${executionId}] Model ${i + 1}/${modelOptions.length} failed`, {
+          executionId,
+          modelIndex: i,
+          model: currentModel,
+          error: errorMessage.substring(0, 200),
+          isRuntimeError,
+          operation: isFirstModel ? 'improve_content_primary_failed' : 'improve_content_fallback_failed'
+        });
+        
+        if (hasMoreModels && isRuntimeError) {
+          // Show user-friendly fallback message
+          const errorType = errorMessage.startsWith('USAGE_CAP:') ? 'Usage Limit' : 'Runtime Error';
+          const friendlyMessage = errorMessage.startsWith('USAGE_CAP:') ? 
+            errorMessage.replace('USAGE_CAP: ', '') : 
+            errorMessage.replace('RUNTIME_ERROR: ', '');
+          
+          if (isFirstModel) {
+            console.warn(`\n⚠️  Primary AI model failed: ${errorType}`);
+            console.warn(`   ${friendlyMessage}`);
+          } else {
+            console.warn(`⚠️  Fallback ${i} failed: ${errorType}`);
+          }
+          console.warn(`   Attempting fallback to ${modelOptions[i + 1].provider}/${modelOptions[i + 1].model}...\n`);
+          
+          // Continue to next model
+          continue;
+        } else if (!isRuntimeError || !hasMoreModels) {
+          // Either not a runtime error (don't fallback) or no more models to try
+          break;
+        }
+      }
+    }
     
-    const response = await (this.ai as any).promptWithOptions(prompt, options);
-    
-    this.logger.info(`[${executionId}] Received AI response`, {
-      executionId,
-      responseLength: response.content.length,
-      operation: 'improve_content_ai_response'
-    });
+    // All models failed
+    throw new Error(`All ${modelOptions.length} model(s) failed. Last error: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  private processAIResponse(response: AIResponse, executionId: string, originalContent: string): AIResponse {
     
     // Log the full response content for debugging
     this.logger.debug(`[${executionId}] Full AI response content`, {
@@ -367,6 +443,52 @@ export class AIScorer implements IContentScorer {
         operation: 'improve_content_empty_error'
       });
       throw new Error('AI returned empty improved content');
+    }
+    
+    // Check for goose error responses and classify them
+    const hasGooseError = /Interrupted before the model replied/i.test(improvedContent) ||
+                          /error: The error above was an exception we were not able to handle/i.test(improvedContent);
+    
+    if (hasGooseError) {
+      // Extract the actual error details from the response
+      const errorResponse = improvedContent;
+      
+      // Classify the error type based on actual goose error patterns
+      const isUsageCapError = /usage limits|quota|limit exceeded|rate limit/i.test(errorResponse) ||
+                             /You have reached your specified API usage limits/i.test(errorResponse) ||
+                             /regain access on \d{4}-\d{2}-\d{2}/i.test(errorResponse) ||
+                             /invalid_request_error.*usage/i.test(errorResponse);
+      
+      const isAuthError = /authentication|unauthorized|invalid.*key|api.*key.*invalid/i.test(errorResponse) &&
+                         !isUsageCapError; // Usage cap errors often mention auth but aren't auth issues
+      
+      const isServerError = /500|502|503|504|timeout|server.*error|internal.*error/i.test(errorResponse) ||
+                           /network.*error|connection.*error/i.test(errorResponse) ||
+                           /Failed to parse response/i.test(errorResponse);
+      
+      const isRuntimeError = isUsageCapError || isServerError;
+      
+      this.logger.error(`[${executionId}] Goose returned error instead of AI response`, {
+        executionId,
+        errorResponse: errorResponse.substring(0, 1000),
+        errorType: isUsageCapError ? 'usage_cap' : isAuthError ? 'authentication' : isServerError ? 'server_error' : 'unknown',
+        isRuntimeError,
+        operation: 'improve_content_goose_error'
+      });
+      
+      if (isUsageCapError) {
+        // Extract usage cap details for better user messaging
+        const usageLimitMatch = errorResponse.match(/You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})/);
+        if (usageLimitMatch) {
+          throw new Error(`USAGE_CAP: API usage limit reached. Access will be restored on ${usageLimitMatch[1]}`);
+        } else {
+          throw new Error(`USAGE_CAP: ${errorResponse.split('\n')[0]}`);
+        }
+      } else if (isRuntimeError) {
+        throw new Error(`RUNTIME_ERROR: ${errorResponse.split('\n')[0]}`);
+      } else {
+        throw new Error(`AI provider failed: ${errorResponse.split('\n')[0]}`);
+      }
     }
     
     // Check if the AI included unwanted preamble (common patterns)
@@ -406,14 +528,14 @@ export class AIScorer implements IContentScorer {
     }
     
     // Ensure frontmatter is preserved (if original had it)
-    const originalHasFrontmatter = content.trim().startsWith('---');
+    const originalHasFrontmatter = originalContent.trim().startsWith('---');
     const improvedHasFrontmatter = improvedContent.trim().startsWith('---');
     
     if (originalHasFrontmatter && !improvedHasFrontmatter) {
       // Extract original frontmatter
-      const frontmatterEndIndex = content.indexOf('---', 3);
+      const frontmatterEndIndex = originalContent.indexOf('---', 3);
       if (frontmatterEndIndex !== -1) {
-        const originalFrontmatter = content.substring(0, frontmatterEndIndex + 3);
+        const originalFrontmatter = originalContent.substring(0, frontmatterEndIndex + 3);
         // Prepend original frontmatter if AI didn't preserve it
         improvedContent = originalFrontmatter + '\n\n' + improvedContent;
         
@@ -427,7 +549,7 @@ export class AIScorer implements IContentScorer {
     
     // Final validation and detailed logging
     const finalLength = improvedContent.length;
-    const originalLength = content.length;
+    const originalLength = originalContent.length;
     const lengthRatio = finalLength / originalLength;
     
     this.logger.info(`[${executionId}] Content improvement completed`, {
