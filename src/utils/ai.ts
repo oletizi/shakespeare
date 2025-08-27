@@ -152,12 +152,19 @@ Current scores and analysis:
 Original content:
 {content}
 
-Please provide:
-1. Improved version of the content
-2. Summary of changes made
-3. Expected impact on quality scores
+CRITICAL INSTRUCTIONS:
+1. Return ONLY the improved version of the complete content
+2. Do NOT include any preamble, explanation, or commentary
+3. Do NOT start with phrases like "I'll help improve..." or "Here's the improved version..."
+4. Preserve ALL frontmatter (YAML between --- delimiters) EXACTLY as is
+5. Preserve ALL MDX/JSX components and their syntax
+6. Maintain the same file format (Markdown, MDX, etc.)
+7. Start your response with the frontmatter (if present) or the first line of actual content
 
-Make sure to maintain any technical accuracy while improving readability and engagement.
+Focus improvements on:
+- Dimensions that scored lowest in the analysis
+- Maintaining technical accuracy while improving readability
+- Enhancing engagement without changing the core message
 Preserve the original meaning and intent while enhancing the presentation and effectiveness.
 `;
 
@@ -303,12 +310,50 @@ export class AIScorer implements IContentScorer {
 
     const response = await (this.ai as any).promptWithOptions(prompt, options);
     
-    // Extract and validate the improved content
-    const sections = response.content.split('\n\n');
-    const improvedContent = sections[0];
+    // The AI should return the complete improved content
+    // We expect the entire response to be the improved content based on our prompt
+    let improvedContent = response.content.trim();
     
-    if (!improvedContent || improvedContent.trim().length === 0) {
+    // Basic validation
+    if (!improvedContent || improvedContent.length === 0) {
       throw new Error('AI returned empty improved content');
+    }
+    
+    // Check if the AI included unwanted preamble (common patterns)
+    const unwantedPreambles = [
+      /^I'll help.*?\n\n/i,
+      /^Here's the improved.*?\n\n/i,
+      /^Let me.*?\n\n/i,
+      /^I've improved.*?\n\n/i,
+      /^Below is.*?\n\n/i,
+      /^The improved.*?\n\n/i
+    ];
+    
+    for (const pattern of unwantedPreambles) {
+      if (pattern.test(improvedContent)) {
+        // Remove the preamble and everything before the actual content
+        improvedContent = improvedContent.replace(pattern, '');
+        break;
+      }
+    }
+    
+    // Ensure frontmatter is preserved (if original had it)
+    const originalHasFrontmatter = content.trim().startsWith('---');
+    const improvedHasFrontmatter = improvedContent.trim().startsWith('---');
+    
+    if (originalHasFrontmatter && !improvedHasFrontmatter) {
+      // Extract original frontmatter
+      const frontmatterEndIndex = content.indexOf('---', 3);
+      if (frontmatterEndIndex !== -1) {
+        const originalFrontmatter = content.substring(0, frontmatterEndIndex + 3);
+        // Prepend original frontmatter if AI didn't preserve it
+        improvedContent = originalFrontmatter + '\n\n' + improvedContent;
+      }
+    }
+    
+    // Final validation - should have substantial content
+    if (improvedContent.length < content.length * 0.3) {
+      throw new Error(`AI returned suspiciously short content (${improvedContent.length} chars vs original ${content.length} chars)`);
     }
     
     return {
