@@ -298,24 +298,74 @@ export class AIScorer implements IContentScorer {
    * This is the single entry point for content improvement
    */
   async improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse> {
+    // Generate unique execution ID for tracking
+    const executionId = `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = new Date().toISOString();
+    
+    // Write detailed execution logs to file only
+    this.logger.info(`[${executionId}] Starting content improvement at ${timestamp}`, {
+      executionId,
+      originalContentLength: content.length,
+      timestamp,
+      operation: 'improve_content_start'
+    });
+    
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT
       .replace('{analysis}', analysisStr)
       .replace('{content}', content);
+    
+    this.logger.debug(`[${executionId}] Improvement request details`, {
+      executionId,
+      promptLength: prompt.length,
+      promptPreview: prompt.substring(0, 500),
+      operation: 'improve_content_prompt',
+      originalContentLength: content.length
+    });
 
     // Always use promptWithOptions - no fallbacks
     if (!('promptWithOptions' in this.ai) || typeof this.ai.promptWithOptions !== 'function') {
       throw new Error('AI implementation must support promptWithOptions method');
     }
 
+    this.logger.info(`[${executionId}] Sending AI request`, {
+      executionId,
+      options: options,
+      operation: 'improve_content_ai_request'
+    });
+    
     const response = await (this.ai as any).promptWithOptions(prompt, options);
+    
+    this.logger.info(`[${executionId}] Received AI response`, {
+      executionId,
+      responseLength: response.content.length,
+      operation: 'improve_content_ai_response'
+    });
+    
+    // Log the full response content for debugging
+    this.logger.debug(`[${executionId}] Full AI response content`, {
+      executionId,
+      fullResponse: response.content,
+      responseLength: response.content.length,
+      operation: 'improve_content_full_response'
+    });
     
     // The AI should return the complete improved content
     // We expect the entire response to be the improved content based on our prompt
     let improvedContent = response.content.trim();
     
+    this.logger.debug(`[${executionId}] Processing AI response`, {
+      executionId,
+      trimmedLength: improvedContent.length,
+      operation: 'improve_content_processing'
+    });
+    
     // Basic validation
     if (!improvedContent || improvedContent.length === 0) {
+      this.logger.error(`[${executionId}] AI returned empty content`, {
+        executionId,
+        operation: 'improve_content_empty_error'
+      });
       throw new Error('AI returned empty improved content');
     }
     
@@ -329,12 +379,30 @@ export class AIScorer implements IContentScorer {
       /^The improved.*?\n\n/i
     ];
     
+    let preambleRemoved = false;
     for (const pattern of unwantedPreambles) {
       if (pattern.test(improvedContent)) {
+        const beforeLength = improvedContent.length;
         // Remove the preamble and everything before the actual content
         improvedContent = improvedContent.replace(pattern, '');
+        const afterLength = improvedContent.length;
+        
+        this.logger.info(`[${executionId}] Removed preamble`, {
+          executionId,
+          patternMatched: pattern.toString(),
+          charsRemoved: beforeLength - afterLength,
+          operation: 'improve_content_preamble_removed'
+        });
+        preambleRemoved = true;
         break;
       }
+    }
+    
+    if (!preambleRemoved) {
+      this.logger.debug(`[${executionId}] No preamble detected`, {
+        executionId,
+        operation: 'improve_content_no_preamble'
+      });
     }
     
     // Ensure frontmatter is preserved (if original had it)
@@ -348,12 +416,37 @@ export class AIScorer implements IContentScorer {
         const originalFrontmatter = content.substring(0, frontmatterEndIndex + 3);
         // Prepend original frontmatter if AI didn't preserve it
         improvedContent = originalFrontmatter + '\n\n' + improvedContent;
+        
+        this.logger.info(`[${executionId}] Restored missing frontmatter`, {
+          executionId,
+          frontmatterLength: originalFrontmatter.length,
+          operation: 'improve_content_frontmatter_restored'
+        });
       }
     }
     
-    // Final validation - should have substantial content
-    if (improvedContent.length < content.length * 0.3) {
-      throw new Error(`AI returned suspiciously short content (${improvedContent.length} chars vs original ${content.length} chars)`);
+    // Final validation and detailed logging
+    const finalLength = improvedContent.length;
+    const originalLength = content.length;
+    const lengthRatio = finalLength / originalLength;
+    
+    this.logger.info(`[${executionId}] Content improvement completed`, {
+      executionId,
+      originalLength,
+      finalLength,
+      lengthRatio,
+      operation: 'improve_content_completed'
+    });
+    
+    if (finalLength < originalLength * 0.3) {
+      this.logger.error(`[${executionId}] Content too short - likely parsing error`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: 'improve_content_validation_error'
+      });
+      throw new Error(`AI returned suspiciously short content (${finalLength} chars vs original ${originalLength} chars)`);
     }
     
     return {

@@ -239,7 +239,7 @@ var ShakespeareLogger = class {
   errorLogPath;
   constructor(rootDir) {
     const logDir = rootDir ? join(rootDir, ".shakespeare") : join(process.cwd(), ".shakespeare");
-    this.errorLogPath = join(logDir, "errors.log");
+    this.errorLogPath = join(logDir, "log.txt");
     const isTestEnvironment = process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== void 0;
     const canCreateLogDir = !isTestEnvironment || rootDir?.startsWith("/tmp") || rootDir?.startsWith(process.cwd());
     let fileTransport = null;
@@ -257,7 +257,7 @@ var ShakespeareLogger = class {
         const gitignorePath = join(logDir, ".gitignore");
         if (!existsSync(gitignorePath)) {
           try {
-            writeFileSync(gitignorePath, "# Ignore Shakespeare log files\n*.log*\n");
+            writeFileSync(gitignorePath, "# Ignore Shakespeare log files\n*.log*\n*.txt\n");
           } catch (error) {
           }
         }
@@ -266,7 +266,8 @@ var ShakespeareLogger = class {
         try {
           fileTransport = new winston.transports.File({
             filename: this.errorLogPath,
-            level: "error",
+            level: "debug",
+            // Log everything to file
             format: winston.format.combine(
               winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
               winston.format.errors({ stack: true }),
@@ -275,12 +276,12 @@ var ShakespeareLogger = class {
             maxsize: 10 * 1024 * 1024,
             // 10MB max file size
             maxFiles: 5,
-            // Keep 5 error log files
+            // Keep 5 log files
             tailable: true
           });
         } catch (error) {
           if (!isTestEnvironment) {
-            console.warn(`Warning: Could not create error log file ${this.errorLogPath}`);
+            console.warn(`Warning: Could not create log file ${this.errorLogPath}`);
           }
         }
       }
@@ -407,8 +408,8 @@ var ShakespeareLogger = class {
     this.logger.error("Operation failed", fullContext);
     const hasFileTransport = this.logger.transports.some((t) => t instanceof winston.transports.File);
     if (hasFileTransport && existsSync(this.errorLogPath)) {
-      console.error(`\u{1F4CB} Full error details logged to: ${this.errorLogPath}`);
-      console.error(`\u{1F4A1} Run: tail -f "${this.errorLogPath}" to monitor errors`);
+      console.error(`\u{1F4CB} Full details logged to: ${this.errorLogPath}`);
+      console.error(`\u{1F4A1} Run: tail -f "${this.errorLogPath}" to monitor logs`);
     }
     console.error();
   }
@@ -882,14 +883,54 @@ var AIScorer = class {
    * This is the single entry point for content improvement
    */
   async improveContent(content, analysis, options) {
+    const executionId = `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    this.logger.info(`[${executionId}] Starting content improvement at ${timestamp}`, {
+      executionId,
+      originalContentLength: content.length,
+      timestamp,
+      operation: "improve_content_start"
+    });
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    this.logger.debug(`[${executionId}] Improvement request details`, {
+      executionId,
+      promptLength: prompt.length,
+      promptPreview: prompt.substring(0, 500),
+      operation: "improve_content_prompt",
+      originalContentLength: content.length
+    });
     if (!("promptWithOptions" in this.ai) || typeof this.ai.promptWithOptions !== "function") {
       throw new Error("AI implementation must support promptWithOptions method");
     }
+    this.logger.info(`[${executionId}] Sending AI request`, {
+      executionId,
+      options,
+      operation: "improve_content_ai_request"
+    });
     const response = await this.ai.promptWithOptions(prompt, options);
+    this.logger.info(`[${executionId}] Received AI response`, {
+      executionId,
+      responseLength: response.content.length,
+      operation: "improve_content_ai_response"
+    });
+    this.logger.debug(`[${executionId}] Full AI response content`, {
+      executionId,
+      fullResponse: response.content,
+      responseLength: response.content.length,
+      operation: "improve_content_full_response"
+    });
     let improvedContent = response.content.trim();
+    this.logger.debug(`[${executionId}] Processing AI response`, {
+      executionId,
+      trimmedLength: improvedContent.length,
+      operation: "improve_content_processing"
+    });
     if (!improvedContent || improvedContent.length === 0) {
+      this.logger.error(`[${executionId}] AI returned empty content`, {
+        executionId,
+        operation: "improve_content_empty_error"
+      });
       throw new Error("AI returned empty improved content");
     }
     const unwantedPreambles = [
@@ -900,11 +941,27 @@ var AIScorer = class {
       /^Below is.*?\n\n/i,
       /^The improved.*?\n\n/i
     ];
+    let preambleRemoved = false;
     for (const pattern of unwantedPreambles) {
       if (pattern.test(improvedContent)) {
+        const beforeLength = improvedContent.length;
         improvedContent = improvedContent.replace(pattern, "");
+        const afterLength = improvedContent.length;
+        this.logger.info(`[${executionId}] Removed preamble`, {
+          executionId,
+          patternMatched: pattern.toString(),
+          charsRemoved: beforeLength - afterLength,
+          operation: "improve_content_preamble_removed"
+        });
+        preambleRemoved = true;
         break;
       }
+    }
+    if (!preambleRemoved) {
+      this.logger.debug(`[${executionId}] No preamble detected`, {
+        executionId,
+        operation: "improve_content_no_preamble"
+      });
     }
     const originalHasFrontmatter = content.trim().startsWith("---");
     const improvedHasFrontmatter = improvedContent.trim().startsWith("---");
@@ -913,10 +970,32 @@ var AIScorer = class {
       if (frontmatterEndIndex !== -1) {
         const originalFrontmatter = content.substring(0, frontmatterEndIndex + 3);
         improvedContent = originalFrontmatter + "\n\n" + improvedContent;
+        this.logger.info(`[${executionId}] Restored missing frontmatter`, {
+          executionId,
+          frontmatterLength: originalFrontmatter.length,
+          operation: "improve_content_frontmatter_restored"
+        });
       }
     }
-    if (improvedContent.length < content.length * 0.3) {
-      throw new Error(`AI returned suspiciously short content (${improvedContent.length} chars vs original ${content.length} chars)`);
+    const finalLength = improvedContent.length;
+    const originalLength = content.length;
+    const lengthRatio = finalLength / originalLength;
+    this.logger.info(`[${executionId}] Content improvement completed`, {
+      executionId,
+      originalLength,
+      finalLength,
+      lengthRatio,
+      operation: "improve_content_completed"
+    });
+    if (finalLength < originalLength * 0.3) {
+      this.logger.error(`[${executionId}] Content too short - likely parsing error`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: "improve_content_validation_error"
+      });
+      throw new Error(`AI returned suspiciously short content (${finalLength} chars vs original ${originalLength} chars)`);
     }
     return {
       content: improvedContent,

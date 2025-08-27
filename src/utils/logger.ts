@@ -58,9 +58,9 @@ export class ShakespeareLogger {
   private errorLogPath: string;
 
   constructor(rootDir?: string) {
-    // Set up error log path in .shakespeare directory
+    // Set up log path in .shakespeare directory
     const logDir = rootDir ? join(rootDir, '.shakespeare') : join(process.cwd(), '.shakespeare');
-    this.errorLogPath = join(logDir, 'errors.log');
+    this.errorLogPath = join(logDir, 'log.txt');
     
     // Determine if we can create file logs (skip in test environments with problematic paths)
     const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
@@ -86,7 +86,7 @@ export class ShakespeareLogger {
         const gitignorePath = join(logDir, '.gitignore');
         if (!existsSync(gitignorePath)) {
           try {
-            writeFileSync(gitignorePath, '# Ignore Shakespeare log files\n*.log*\n');
+            writeFileSync(gitignorePath, '# Ignore Shakespeare log files\n*.log*\n*.txt\n');
           } catch (error) {
             // Non-critical if we can't create .gitignore
           }
@@ -98,20 +98,20 @@ export class ShakespeareLogger {
         try {
           fileTransport = new winston.transports.File({
             filename: this.errorLogPath,
-            level: 'error',
+            level: 'debug', // Log everything to file
             format: winston.format.combine(
               winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
               winston.format.errors({ stack: true }),
               winston.format.json()
             ),
             maxsize: 10 * 1024 * 1024, // 10MB max file size
-            maxFiles: 5, // Keep 5 error log files
+            maxFiles: 5, // Keep 5 log files
             tailable: true
           });
         } catch (error) {
           // File transport creation failed, continue with console only
           if (!isTestEnvironment) {
-            console.warn(`Warning: Could not create error log file ${this.errorLogPath}`);
+            console.warn(`Warning: Could not create log file ${this.errorLogPath}`);
           }
         }
       }
@@ -260,8 +260,8 @@ export class ShakespeareLogger {
     // Show file reference if available
     const hasFileTransport = this.logger.transports.some(t => t instanceof winston.transports.File);
     if (hasFileTransport && existsSync(this.errorLogPath)) {
-      console.error(`📋 Full error details logged to: ${this.errorLogPath}`);
-      console.error(`💡 Run: tail -f "${this.errorLogPath}" to monitor errors`);
+      console.error(`📋 Full details logged to: ${this.errorLogPath}`);
+      console.error(`💡 Run: tail -f "${this.errorLogPath}" to monitor logs`);
     }
     console.error(); // Add newline for spacing
   }
