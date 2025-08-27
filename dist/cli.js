@@ -1890,7 +1890,7 @@ var Shakespeare = class _Shakespeare {
             config = configModule.default || configModule;
           }
           try {
-            const normalizedConfig = config;
+            const normalizedConfig = await this.workflowConfigToShakespeareConfig(config);
             let configDir = dirname2(resolve(configFile));
             if (configFile.includes(".shakespeare")) {
               configDir = dirname2(configDir);
@@ -1921,7 +1921,7 @@ var Shakespeare = class _Shakespeare {
         const db = JSON.parse(readFileSync2(dbPath, "utf-8"));
         if (db.config) {
           try {
-            const normalizedConfig = db.config;
+            const normalizedConfig = await this.workflowConfigToShakespeareConfig(db.config);
             const shakespeare = await _Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
           } catch (error) {
@@ -1949,13 +1949,18 @@ var Shakespeare = class _Shakespeare {
     if (workflowConfig.contentCollection) {
       config.contentCollection = workflowConfig.contentCollection;
     }
-    if (workflowConfig.models?.review) {
+    Object.keys(workflowConfig).forEach((key) => {
+      if (!["verbose", "logLevel", "contentCollection"].includes(key)) {
+        config[key] = workflowConfig[key];
+      }
+    });
+    if (!config.model && workflowConfig.models?.review) {
       const reviewModel = workflowConfig.models.review;
       if (typeof reviewModel === "string") {
         config.model = reviewModel;
       } else {
         config.model = reviewModel.model;
-        if (reviewModel.provider) {
+        if (reviewModel.provider && !config.provider) {
           config.provider = reviewModel.provider;
         }
       }
