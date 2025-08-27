@@ -152,10 +152,10 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
         contentCollection: 'nextjs',
         verbose: true,
         models: {
-          review: 'gemini-1.5-flash'
-        },
-        providers: {
-          review: 'google'
+          review: {
+            model: 'gemini-1.5-flash',
+            provider: 'google'
+          }
         }
       };
 

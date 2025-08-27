@@ -1125,8 +1125,8 @@ export class Shakespeare {
           }
           
           try {
-            // Use configuration directly - no normalization needed
-            const normalizedConfig = config;
+            // Process configuration to extract model/provider info
+            const normalizedConfig = await this.workflowConfigToShakespeareConfig(config);
             
             // The root directory should be the project root, not the config directory
             // For configs in .shakespeare/, use the parent directory
@@ -1168,8 +1168,8 @@ export class Shakespeare {
         const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
         if (db.config) {
           try {
-            // Use database configuration directly - no normalization needed
-            const normalizedConfig = db.config;
+            // Process database configuration to extract model/provider info
+            const normalizedConfig = await this.workflowConfigToShakespeareConfig(db.config);
             // Use current working directory as root when loading from database
             const shakespeare = await Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
@@ -1204,14 +1204,21 @@ export class Shakespeare {
       config.contentCollection = workflowConfig.contentCollection;
     }
 
-    // Configure models - use review model as default since it's most commonly used
-    if (workflowConfig.models?.review) {
+    // Copy all other properties from the source config
+    Object.keys(workflowConfig).forEach(key => {
+      if (!['verbose', 'logLevel', 'contentCollection'].includes(key)) {
+        (config as any)[key] = (workflowConfig as any)[key];
+      }
+    });
+
+    // Configure models - use review model as default since it's most commonly used if no global model
+    if (!config.model && workflowConfig.models?.review) {
       const reviewModel = workflowConfig.models.review;
       if (typeof reviewModel === 'string') {
         config.model = reviewModel;
       } else {
         config.model = reviewModel.model;
-        if (reviewModel.provider) {
+        if (reviewModel.provider && !config.provider) {
           config.provider = reviewModel.provider;
         }
       }
