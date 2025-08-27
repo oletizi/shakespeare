@@ -1,0 +1,181 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.shakespeare.ai/config/v1.json",
+  "title": "Shakespeare Configuration V1 (Legacy)",
+  "description": "Legacy configuration format for Shakespeare AI content management system",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "enum": [1],
+      "description": "Configuration version"
+    },
+    "contentCollection": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["astro", "nextjs", "gatsby", "custom"],
+          "description": "Predefined content collection type"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "baseDir": {
+              "type": "string",
+              "description": "Base directory to scan for content"
+            },
+            "include": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "File patterns to include (glob patterns)"
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "File patterns to exclude (glob patterns)"
+            },
+            "framework": {
+              "type": "string",
+              "enum": ["astro", "nextjs", "gatsby", "custom"],
+              "description": "Framework-specific settings"
+            }
+          },
+          "required": ["baseDir", "include"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "verbose": {
+      "type": "boolean",
+      "description": "Enable verbose logging"
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": ["error", "warn", "info", "debug"],
+      "description": "Log level for structured logging"
+    },
+    "models": {
+      "type": "object",
+      "properties": {
+        "review": {
+          "type": "string",
+          "description": "Model for content review/scoring operations"
+        },
+        "improve": {
+          "type": "string",
+          "description": "Model for content improvement operations"
+        },
+        "generate": {
+          "type": "string",
+          "description": "Model for content generation operations"
+        }
+      },
+      "additionalProperties": false
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "review": {
+          "type": "string",
+          "description": "Provider for content review/scoring operations"
+        },
+        "improve": {
+          "type": "string",
+          "description": "Provider for content improvement operations"
+        },
+        "generate": {
+          "type": "string",
+          "description": "Provider for content generation operations"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflows": {
+      "type": "object",
+      "properties": {
+        "discover": {
+          "type": "object",
+          "properties": {
+            "resetExisting": {
+              "type": "boolean",
+              "description": "Whether to reset existing entries when discovering"
+            },
+            "autoInit": {
+              "type": "boolean",
+              "description": "Whether to automatically initialize database"
+            }
+          },
+          "additionalProperties": false
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "batchSize": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Batch size for review operations"
+            },
+            "estimateCosts": {
+              "type": "boolean",
+              "description": "Whether to estimate costs before running"
+            },
+            "retryFailures": {
+              "type": "boolean",
+              "description": "Whether to retry failed operations"
+            }
+          },
+          "additionalProperties": false
+        },
+        "improve": {
+          "type": "object",
+          "properties": {
+            "maxCount": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Maximum number of items to improve"
+            },
+            "requireReviewFirst": {
+              "type": "boolean",
+              "description": "Whether to require review before improvement"
+            },
+            "targetThreshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10,
+              "description": "Minimum score threshold to trigger improvement"
+            }
+          },
+          "additionalProperties": false
+        },
+        "complete": {
+          "type": "object",
+          "properties": {
+            "improveCount": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Number of items to improve in complete workflow"
+            },
+            "runDiscovery": {
+              "type": "boolean",
+              "description": "Whether to run discovery as part of complete workflow"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "not": {
+    "anyOf": [
+      { "required": ["costOptimized"] },
+      { "required": ["qualityFirst"] },
+      { "required": ["taskModelOptions"] }
+    ]
+  }
+}

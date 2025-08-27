@@ -14,6 +14,7 @@ export * from '@/types/content';
 export * from '@/types/interfaces';
 export { GooseAI } from '@/utils/goose';
 export { AIScorer } from '@/utils/ai';
+export * from '@/utils/schema-validation';
 
 /**
  * Options for Shakespeare constructor
