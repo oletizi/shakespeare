@@ -886,7 +886,7 @@ var AIScorer = class {
     if (options) {
       return this.improveContentWithModels(content, analysis, [options]);
     } else {
-      throw new Error("Model options are required for content improvement");
+      return this.improveContentWithModels(content, analysis, [void 0]);
     }
   }
   async improveContentWithModels(content, analysis, modelOptions) {

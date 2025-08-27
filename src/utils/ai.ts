@@ -301,7 +301,8 @@ export class AIScorer implements IContentScorer {
     if (options) {
       return this.improveContentWithModels(content, analysis, [options]);
     } else {
-      throw new Error('Model options are required for content improvement');
+      // Pass undefined to let the AI use its defaultOptions
+      return this.improveContentWithModels(content, analysis, [undefined as any]);
     }
   }
 

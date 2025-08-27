@@ -152,6 +152,8 @@ export interface IContentScorer {
     /** Core methods - single implementation path */
     scoreContent(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis>;
     improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
+    /** Array-based model fallback method for content improvement */
+    improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse>;
     /** Batch operations for cost optimization */
     scoreContentBatch(contentList: string[], strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis[]>;
     /** Cost estimation for operations */

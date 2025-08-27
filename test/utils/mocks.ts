@@ -302,6 +302,21 @@ export class MockContentScorer implements IContentScorer {
     };
   }
 
+  async improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse> {
+    const options = modelOptions[0]; // Use first model option for mock
+    return {
+      content: this.mockImprovedContent,
+      costInfo: {
+        provider: options?.provider || 'mock',
+        model: options?.model || 'mock-model',
+        inputTokens: 100,
+        outputTokens: 50,
+        totalCost: 0.001,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+
   // Remove scoreContentWithCosts - use scoreContent directly
 
   // Remove improveContentWithCosts - use improveContent directly
