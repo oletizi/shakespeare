@@ -43,23 +43,20 @@ export declare class AIScorer implements IContentScorer {
     /**
      * Score content across all quality dimensions
      */
-    scoreContent(content: string): Promise<AIContentAnalysis>;
+    /**
+     * Score content across all quality dimensions
+     * This is the single entry point for content scoring
+     */
+    scoreContent(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis>;
     /**
      * Score content for a specific dimension
      */
     private scoreDimension;
     /**
      * Generate improved content based on analysis
+     * This is the single entry point for content improvement
      */
-    improveContent(content: string, analysis: AIContentAnalysis): Promise<string>;
-    /**
-     * Enhanced scoring with cost tracking and model selection
-     */
-    scoreContentWithCosts(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis>;
-    /**
-     * Enhanced content improvement with cost tracking
-     */
-    improveContentWithCosts(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
+    improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
     /**
      * Batch scoring for cost optimization
      */

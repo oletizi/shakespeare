@@ -1,36 +1,15 @@
-import { ShakespeareConfigV1, ShakespeareConfigV2 } from '@/types/interfaces';
+import { ShakespeareConfig } from '@/types/interfaces';
 /**
- * Configuration validation and migration utilities
- */
-/**
- * Error thrown when configuration version is not supported
- */
-export declare class UnsupportedConfigVersionError extends Error {
-    constructor(version: number);
-}
-/**
- * Error thrown when configuration format is invalid
+ * Configuration loading and validation utilities
  */
 export declare class InvalidConfigError extends Error {
     constructor(message: string);
 }
 /**
- * Detect and validate configuration version
+ * Find configuration file in current directory or project root
  */
-export declare function detectConfigVersion(config: any): number;
+export declare function findConfigFile(startDir?: string): string | null;
 /**
- * Validate that a configuration object is valid for its version
+ * Load and validate Shakespeare configuration from file
  */
-export declare function validateConfig(config: any, version: number): void;
-/**
- * Migrate V1 configuration to V2 format
- */
-export declare function migrateV1ToV2(v1Config: ShakespeareConfigV1): ShakespeareConfigV2;
-/**
- * Normalize any configuration to V2 format
- */
-export declare function normalizeConfig(rawConfig: any): ShakespeareConfigV2;
-/**
- * Check if configuration needs migration
- */
-export declare function needsMigration(config: any): boolean;
+export declare function loadConfig(configPath?: string): ShakespeareConfig | null;

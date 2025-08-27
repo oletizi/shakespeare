@@ -82,10 +82,12 @@ export class GooseAI implements IAI {
     // Build goose command arguments with provider and model selection
     const args = ['run', '--no-session', '--quiet'];
     
+    // Only specify provider if explicitly configured
     if (finalOptions.provider) {
       args.push('--provider', finalOptions.provider);
     }
     
+    // Always specify model if available
     if (finalOptions.model) {
       args.push('--model', finalOptions.model);
     }

@@ -5,8 +5,8 @@ import { ContentEntry, QualityDimensions, ContentStatus } from '@/types/content'
 import { AIScorer, AIContentAnalysis, AIScorerOptions } from '@/utils/ai';
 import { GooseAI } from '@/utils/goose';
 import { ShakespeareLogger } from '@/utils/logger';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig, ShakespeareConfig, ShakespeareConfigV1, ShakespeareConfigV2 } from '@/types/interfaces';
-import { normalizeConfig, UnsupportedConfigVersionError, InvalidConfigError } from '@/utils/config';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, ShakespeareConfig } from '@/types/interfaces';
+import { loadConfig, InvalidConfigError } from '@/utils/config';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -60,7 +60,7 @@ export class Shakespeare {
   private verbose: boolean = false;
   
   /** Configuration used to create this instance */
-  public readonly config: ShakespeareConfigV2;
+  public readonly config: ShakespeareConfig;
   
   /** Model options being used for AI operations */
   public readonly modelOptions?: AIModelOptions;
@@ -82,7 +82,6 @@ export class Shakespeare {
     
     // Store configuration for public access (rootDir is not part of config)
     this.config = {
-      version: 2,
       dbPath,
       contentCollection: options.contentCollection,
       verbose: false, // Will be updated by setVerbose() if needed
@@ -180,7 +179,8 @@ export class Shakespeare {
       if (!database.entries[file]) {
         // Initialize new content entry
         const content = await this.scanner.readContent(file);
-        const analysis = await this.ai.scoreContent(content);
+        const scoringResult = await this.ai.scoreContent(content);
+        const analysis = scoringResult.analysis;
 
         const newEntry: ContentEntry = {
           path: file,
@@ -253,38 +253,15 @@ export class Shakespeare {
 
   /**
    * Review/score a specific content file
+   * This is a convenience method that delegates to batch processing with a single item
    */
   async reviewContent(path: string): Promise<void> {
-    const database = this._db.getData();
-    const entry = database.entries[path];
+    const result = await this.reviewContentBatch([path], 1);
     
-    if (!entry) {
-      throw new Error(`Content not found: ${path}`);
+    // If the single item failed, throw the error to maintain the original API contract
+    if (result.failed.length > 0) {
+      throw new Error(result.failed[0].error);
     }
-
-    if (entry.status !== 'needs_review') {
-      throw new Error(`Content has already been reviewed: ${path}`);
-    }
-
-    // Score the content with AI
-    const content = await this.scanner.readContent(path);
-    const analysis = await this.ai.scoreContent(content);
-
-    // Update entry with scores and proper status
-    const updatedEntry: ContentEntry = {
-      ...entry,
-      currentScores: analysis.scores,
-      lastReviewDate: new Date().toISOString(),
-      status: this.determineStatus(analysis.scores),
-      reviewHistory: [{
-        date: new Date().toISOString(),
-        scores: analysis.scores,
-        improvements: []
-      }]
-    };
-
-    await this._db.updateEntry(path, () => updatedEntry);
-    await this._db.save();
   }
 
   /**
@@ -316,88 +293,15 @@ export class Shakespeare {
 
   /**
    * Improve content at the specified path
+   * This is a convenience method that delegates to batch processing with a single item
    */
-  async improveContent(path: string): Promise<void> {
-    const database = this._db.getData();
-    const entry = database.entries[path];
-
-    if (!entry) {
-      throw new Error(`No content found at path: ${path}`);
+  async improveContent(filePath: string): Promise<void> {
+    const result = await this.improveContentBatch([filePath], 1);
+    
+    // If the single item failed, throw the error to maintain the original API contract
+    if (result.failed.length > 0) {
+      throw new Error(result.failed[0].error);
     }
-
-    // Read current content
-    const content = await this.scanner.readContent(path);
-    
-    // Get current analysis
-    const analysis = await this.ai.scoreContent(content);
-    
-    // Generate improved content with better error handling
-    let improvedContent: string;
-    try {
-      this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
-      
-      // Get workflow-specific model options for improvement
-      const improveOptions = await this.getWorkflowModelOptions('improve');
-      
-      if ('improveContentWithCosts' in this.ai && typeof this.ai.improveContentWithCosts === 'function') {
-        const response = await (this.ai as any).improveContentWithCosts(content, analysis, improveOptions);
-        improvedContent = response.content;
-      } else {
-        // Fallback for basic AI implementations
-        improvedContent = await this.ai.improveContent(content, analysis);
-      }
-      
-      this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
-      
-      // Validate that we actually got improved content
-      if (!improvedContent || improvedContent.trim().length === 0) {
-        throw new Error('AI returned empty improved content');
-      }
-      
-      if (improvedContent === content) {
-        this.logger.warn('⚠️  Warning: Improved content is identical to original');
-      }
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`❌ Content improvement failed: ${errorMessage}`);
-      throw error; // Re-throw to prevent silent failures
-    }
-    
-    // Score the improved content
-    const newAnalysis = await this.ai.scoreContent(improvedContent);
-    
-    // Update the content file
-    try {
-      await fs.writeFile(path, improvedContent, 'utf-8');
-      this.logger.info(`📄 Successfully wrote improved content to ${path}`);
-    } catch (writeError) {
-      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
-      this.logger.error(`❌ Failed to write improved content to file: ${errorMessage}`);
-      throw writeError;
-    }
-    
-    // Update database entry
-    await this._db.updateEntry(path, (entry: ContentEntry | undefined) => {
-      if (!entry) {
-        throw new Error(`Entry not found for path: ${path}`);
-      }
-      return {
-        ...entry,
-        currentScores: newAnalysis.scores,
-        lastReviewDate: new Date().toISOString(),
-        improvementIterations: entry.improvementIterations + 1,
-        status: this.determineStatus(newAnalysis.scores),
-        reviewHistory: [
-          ...entry.reviewHistory,
-          {
-            date: new Date().toISOString(),
-            scores: newAnalysis.scores,
-            improvements: Object.values(analysis.analysis).flatMap(a => a.suggestions)
-          }
-        ]
-      };
-    });
   }
 
   /**
@@ -453,6 +357,378 @@ export class Shakespeare {
         this.logger.debug(message);
         break;
     }
+  }
+
+  // ========== BATCH PROCESSING METHODS ==========
+
+  /**
+   * Review multiple files in batch with optimized AI operations
+   */
+  async reviewContentBatch(filePaths: string[], batchSize: number = 5): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`📊 Starting batch review of ${filePaths.length} files (batch size: ${batchSize})`, 'always');
+    
+    await this.initialize();
+    const successful: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+    
+    // Process files in batches
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      
+      this.log(`📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)`, 'always');
+      
+      // Process batch concurrently with controlled concurrency
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`📊 Reviewing ${path.basename(filePath)}`, 'verbose');
+          
+          // Business logic moved from reviewContent method
+          const database = this._db.getData();
+          const entry = database.entries[filePath];
+          
+          if (!entry) {
+            throw new Error(`Content not found: ${filePath}`);
+          }
+
+          if (entry.status !== 'needs_review') {
+            throw new Error(`Content has already been reviewed: ${filePath}`);
+          }
+
+          // Score the content with AI
+          const content = await this.scanner.readContent(filePath);
+          const analysis = await this.ai.scoreContent(content);
+
+          // Update entry with scores and proper status
+          const updatedEntry: ContentEntry = {
+            ...entry,
+            currentScores: analysis.analysis.scores,
+            lastReviewDate: new Date().toISOString(),
+            status: this.determineStatus(analysis.analysis.scores),
+            reviewHistory: [{
+              date: new Date().toISOString(),
+              scores: analysis.analysis.scores,
+              improvements: []
+            }]
+          };
+
+          await this._db.updateEntry(filePath, () => updatedEntry);
+          await this._db.save();
+          
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`❌ Failed to review ${path.basename(filePath)}: ${errorMessage}`, 'always');
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      
+      // Wait for batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Collect results
+      batchResults.forEach(result => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`✅ Reviewed: ${path.basename(result.path)}`, 'verbose');
+        } else {
+          failed.push({ path: result.path, error: result.error || 'Unknown error' });
+        }
+      });
+      
+      // Brief pause between batches to avoid overwhelming APIs
+      if (i + batchSize < filePaths.length) {
+        this.log('⏸️  Pausing between batches...', 'debug');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    const duration = Date.now() - startTime;
+    this.log(`🎉 Batch review completed: ${successful.length} succeeded, ${failed.length} failed`, 'always');
+    
+    if (this.verbose) {
+      this.log(`   ⏱️  Total time: ${duration}ms (${Math.round(duration / 1000 * 10) / 10}s)`);
+      this.log(`   ⚡ Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   📦 Files per batch: ${batchSize}`);
+    }
+    
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+
+  /**
+   * Improve multiple files in batch
+   */
+  async improveContentBatch(filePaths: string[], batchSize: number = 3): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`🚀 Starting batch improvement of ${filePaths.length} files (batch size: ${batchSize})`, 'always');
+    
+    await this.initialize();
+    const successful: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+    
+    // Process files in batches (smaller batches for improvement due to higher cost/complexity)
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(filePaths.length / batchSize);
+      
+      this.log(`📦 Processing improvement batch ${batchNumber}/${totalBatches} (${batch.length} files)`, 'always');
+      
+      // Process batch concurrently
+      const batchPromises = batch.map(async (filePath) => {
+        try {
+          this.log(`📝 Improving ${path.basename(filePath)}`, 'verbose');
+          
+          // Business logic moved from improveContent method
+          // Ensure database is loaded
+          await this._db.load();
+          
+          const database = this._db.getData();
+          this.logger.debug(`🔍 Looking for entry with path: ${filePath}`);
+          this.logger.debug(`🔍 Available database entries: ${Object.keys(database.entries).join(', ')}`);
+          
+          // Try to find the entry with the exact path first
+          let entry = database.entries[filePath];
+          
+          // If not found, try to resolve the path to absolute and look again
+          if (!entry) {
+            const absolutePath = path.resolve(this.rootDir, filePath);
+            this.logger.debug(`🔍 Trying absolute path: ${absolutePath}`);
+            entry = database.entries[absolutePath];
+          }
+
+          if (!entry) {
+            throw new Error(`No content found at path: ${filePath}. Available paths: ${Object.keys(database.entries).join(', ')}`);
+          }
+
+          // Use the absolute path from the entry for all file operations
+          const absoluteFilePath = entry.path;
+          this.logger.debug(`🔍 Using absolute path from entry: ${absoluteFilePath}`);
+          
+          // Read current content
+          const content = await this.scanner.readContent(absoluteFilePath);
+          
+          // Get current analysis
+          const analysis = await this.ai.scoreContent(content);
+          
+          // Generate improved content - single code path, no fallbacks
+          this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
+          
+          // Get workflow-specific model options for improvement
+          const improveOptions = await this.getWorkflowModelOptions('improve');
+          
+          // Call the unified improveContent method that returns AIResponse
+          const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+          const improvedContent = response.content;
+          
+          this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
+          
+          // Validation is now handled inside ai.improveContent(), but we can still check for identical content
+          if (improvedContent === content) {
+            this.logger.warn('⚠️  Warning: Improved content is identical to original');
+          }
+          
+          // Score the improved content
+          const newScoringResult = await this.ai.scoreContent(improvedContent);
+          const newAnalysis = newScoringResult.analysis;
+          
+          // Update the content file
+          try {
+            // Use the absolute path from the entry
+            if (!path.isAbsolute(absoluteFilePath)) {
+              throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
+            }
+            
+            this.logger.debug(`🔍 Writing improved content to: ${absoluteFilePath}`);
+            await fs.writeFile(absoluteFilePath, improvedContent, 'utf-8');
+            this.logger.info(`📄 Successfully wrote improved content to ${absoluteFilePath}`);
+          } catch (writeError) {
+            const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+            this.logger.error(`❌ Failed to write improved content to file: ${errorMessage}`);
+            throw writeError;
+          }
+          
+          // Update database entry - use the path that was found in the database
+          const databaseKey = Object.keys(database.entries).find(key => database.entries[key] === entry);
+          if (!databaseKey) {
+            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
+          }
+          
+          await this._db.updateEntry(databaseKey, (entry: ContentEntry | undefined) => {
+            if (!entry) {
+              throw new Error(`Entry not found for path: ${databaseKey}`);
+            }
+            return {
+              ...entry,
+              currentScores: newAnalysis.scores,
+              lastReviewDate: new Date().toISOString(),
+              improvementIterations: entry.improvementIterations + 1,
+              status: this.determineStatus(newAnalysis.scores),
+              reviewHistory: [
+                ...entry.reviewHistory,
+                {
+                  date: new Date().toISOString(),
+                  scores: newAnalysis.scores,
+                  improvements: Object.values(analysis.analysis).flatMap(a => a.suggestions)
+                }
+              ]
+            };
+          });
+          
+          return { path: filePath, success: true };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.log(`❌ Failed to improve ${path.basename(filePath)}: ${errorMessage}`, 'always');
+          return { path: filePath, success: false, error: errorMessage };
+        }
+      });
+      
+      // Wait for batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Collect results
+      batchResults.forEach(result => {
+        if (result.success) {
+          successful.push(result.path);
+          this.log(`✅ Improved: ${path.basename(result.path)}`, 'verbose');
+        } else {
+          failed.push({ path: result.path, error: result.error || 'Unknown error' });
+        }
+      });
+      
+      // Longer pause between improvement batches (more expensive operations)
+      if (i + batchSize < filePaths.length) {
+        this.log('⏸️  Pausing between improvement batches...', 'debug');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    const duration = Date.now() - startTime;
+    this.log(`🎉 Batch improvement completed: ${successful.length} succeeded, ${failed.length} failed`, 'always');
+    
+    if (this.verbose) {
+      this.log(`   ⏱️  Total time: ${duration}ms (${Math.round(duration / 1000 * 10) / 10}s)`);
+      this.log(`   ⚡ Average time per file: ${Math.round(duration / filePaths.length)}ms`);
+      this.log(`   📦 Files per batch: ${batchSize}`);
+    }
+    
+    return {
+      successful,
+      failed,
+      summary: {
+        total: filePaths.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+
+  /**
+   * Review all content using batch processing for better performance
+   */
+  async reviewAllBatch(batchSize: number = 5): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    
+    // Get model configuration for review workflow
+    const reviewOptions = await this.getWorkflowModelOptions('review');
+    const modelInfo = reviewOptions ? 
+      `${reviewOptions.provider || 'default'}${reviewOptions.model ? `/${reviewOptions.model}` : ''}` : 
+      'default';
+    
+    this.log(`📊 Starting batch content review using ${modelInfo}...`, 'always');
+    
+    await this.initialize();
+    const database = this._db.getData();
+    const allEntries = Object.entries(database.entries || {});
+    const contentNeedingReview = allEntries
+      .filter(([, entry]) => entry.status === 'needs_review')
+      .map(([path]) => path);
+
+    if (contentNeedingReview.length === 0) {
+      this.log('✅ No content needs review', 'always');
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+
+    this.log(`📝 Found ${contentNeedingReview.length} files needing review`, 'always');
+    this.log(`📦 Using batch size: ${batchSize}`, 'verbose');
+    
+    // Use the batch processing method
+    const result = await this.reviewContentBatch(contentNeedingReview, batchSize);
+    
+    // Update summary with total time
+    result.summary.duration = Date.now() - startTime;
+    
+    return result;
+  }
+
+  /**
+   * Improve worst-scoring content using batch processing
+   */
+  async improveWorstBatch(count: number = 5, batchSize: number = 3): Promise<WorkflowResult> {
+    const startTime = Date.now();
+    this.log(`🚀 Starting batch improvement of ${count} worst-scoring content (batch size: ${batchSize})...`, 'always');
+    
+    await this.initialize();
+    const database = this._db.getData();
+    
+    // Get worst-scoring files
+    const worstFiles: string[] = [];
+    const entries = Object.entries(database.entries);
+    
+    // Sort by average score (ascending) to get worst first
+    const scoredEntries = entries
+      .filter(([, entry]) => entry.status !== 'needs_review' && entry.status !== 'meets_targets')
+      .map(([path, entry]) => {
+        const scores = Object.values(entry.currentScores);
+        const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+        return { path, avgScore, entry };
+      })
+      .filter(({ avgScore }) => avgScore > 0) // Exclude unreviewed content
+      .sort((a, b) => a.avgScore - b.avgScore);
+    
+    // Take the worst N files
+    for (let i = 0; i < Math.min(count, scoredEntries.length); i++) {
+      worstFiles.push(scoredEntries[i].path);
+    }
+    
+    if (worstFiles.length === 0) {
+      this.log('✅ No content needs improvement', 'always');
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    
+    this.log(`📋 Selected ${worstFiles.length} files for improvement:`, 'verbose');
+    worstFiles.forEach((file, index) => {
+      const entry = scoredEntries.find(e => e.path === file);
+      this.log(`   ${index + 1}. ${path.basename(file)} (score: ${entry?.avgScore.toFixed(1)})`, 'verbose');
+    });
+    
+    // Use batch processing for improvements
+    const result = await this.improveContentBatch(worstFiles, batchSize);
+    
+    // Update summary with total time
+    result.summary.duration = Date.now() - startTime;
+    
+    return result;
   }
 
   // ========== HIGH-LEVEL WORKFLOW METHODS ==========
@@ -778,7 +1054,7 @@ export class Shakespeare {
    * @param rootDir - The root directory to operate in
    * @param config - Configuration options
    */
-  static async create(rootDir: string, config: ShakespeareConfigV2 = {}): Promise<Shakespeare> {
+  static async create(rootDir: string, config: ShakespeareConfig = {}): Promise<Shakespeare> {
     const dbPath = config.dbPath;
     
     // Auto-detect project type if not specified
@@ -849,8 +1125,8 @@ export class Shakespeare {
           }
           
           try {
-            // Normalize configuration using versioning system
-            const normalizedConfig = normalizeConfig(config);
+            // Process configuration to extract model/provider info
+            const normalizedConfig = await this.workflowConfigToShakespeareConfig(config);
             
             // The root directory should be the project root, not the config directory
             // For configs in .shakespeare/, use the parent directory
@@ -867,7 +1143,7 @@ export class Shakespeare {
             const shakespeare = await Shakespeare.create(configDir, normalizedConfig);
             return shakespeare;
           } catch (error) {
-            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+            if (error instanceof InvalidConfigError) {
               // Provide helpful error messages for configuration issues
               new ShakespeareLogger().error(`Failed to load config from ${configFile}: ${error.message}`);
               throw error;
@@ -877,7 +1153,7 @@ export class Shakespeare {
         }
       } catch (error) {
         // Re-throw validation errors instead of swallowing them
-        if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+        if (error instanceof InvalidConfigError) {
           throw error;
         }
         // Only warn and continue for other errors (file not found, parse errors, etc.)
@@ -892,13 +1168,13 @@ export class Shakespeare {
         const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
         if (db.config) {
           try {
-            // Normalize database configuration using versioning system
-            const normalizedConfig = normalizeConfig(db.config);
+            // Process database configuration to extract model/provider info
+            const normalizedConfig = await this.workflowConfigToShakespeareConfig(db.config);
             // Use current working directory as root when loading from database
             const shakespeare = await Shakespeare.create(cwd, normalizedConfig);
             return shakespeare;
           } catch (error) {
-            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+            if (error instanceof InvalidConfigError) {
               new ShakespeareLogger().error(`Failed to load config from database: ${error.message}`);
               throw error;
             }
@@ -915,11 +1191,10 @@ export class Shakespeare {
   }
 
   /**
-   * Convert WorkflowConfig to ShakespeareConfig
+   * Convert ShakespeareConfig to ShakespeareConfig
    */
-  static async workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig): Promise<ShakespeareConfigV2> {
-    const config: ShakespeareConfigV2 = {
-      version: 2,
+  static async workflowConfigToShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<ShakespeareConfig> {
+    const config: ShakespeareConfig = {
       verbose: workflowConfig.verbose,
       logLevel: workflowConfig.logLevel
     };
@@ -929,20 +1204,31 @@ export class Shakespeare {
       config.contentCollection = workflowConfig.contentCollection;
     }
 
-    // Configure models - use review model as default since it's most commonly used
-    if (workflowConfig.models?.review) {
-      config.model = workflowConfig.models.review;
+    // Copy all other properties from the source config
+    Object.keys(workflowConfig).forEach(key => {
+      if (!['verbose', 'logLevel', 'contentCollection'].includes(key)) {
+        (config as any)[key] = (workflowConfig as any)[key];
+      }
+    });
+
+    // Configure models - use review model as default since it's most commonly used if no global model
+    if (!config.model && workflowConfig.models?.review) {
+      const reviewModel = workflowConfig.models.review;
+      if (typeof reviewModel === 'string') {
+        config.model = reviewModel;
+      } else {
+        config.model = reviewModel.model;
+        if (reviewModel.provider && !config.provider) {
+          config.provider = reviewModel.provider;
+        }
+      }
     }
 
-    if (workflowConfig.providers?.review) {
-      config.provider = workflowConfig.providers.review;
-    }
-
-    // If both provider and model are specified, combine them
-    if (config.provider || config.model) {
+    // If model is specified, set up model options
+    if (config.model) {
       config.modelOptions = {
-        provider: config.provider,
-        model: config.model
+        model: config.model,
+        provider: config.provider
       };
     }
 
@@ -954,7 +1240,7 @@ export class Shakespeare {
   /**
    * Save workflow configuration to the content database
    */
-  async saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void> {
+  async saveShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<void> {
     await this._db.load();
     const currentData = this._db.getData();
     currentData.config = workflowConfig;
@@ -965,9 +1251,21 @@ export class Shakespeare {
   /**
    * Get current workflow configuration from database
    */
-  async getWorkflowConfig(): Promise<WorkflowConfig | undefined> {
+  async getShakespeareConfig(): Promise<ShakespeareConfig | undefined> {
     await this._db.load();
     return this._db.getData().config;
+  }
+
+  /**
+   * Get model information as a formatted string for display
+   */
+  async getModelInfoString(workflowType: 'review' | 'improve' | 'generate'): Promise<string> {
+    const modelOptions = await this.getWorkflowModelOptions(workflowType);
+    if (!modelOptions) return 'default';
+    
+    const provider = modelOptions.provider || 'default';
+    const model = modelOptions.model ? `/${modelOptions.model}` : '';
+    return `${provider}${model}`;
   }
 
   /**
@@ -979,26 +1277,30 @@ export class Shakespeare {
       return this.config.taskModelOptions[workflowType];
     }
     
-    // Then check for task-specific models/providers in current config
-    const provider = this.config.providers?.[workflowType];
-    const model = this.config.models?.[workflowType];
-    
-    if (provider || model) {
-      return { provider, model };
-    }
-    
-    // Fallback to legacy workflow config from database
-    const workflowConfig = await this.getWorkflowConfig();
-    if (workflowConfig) {
-      const legacyProvider = workflowConfig.providers?.[workflowType];
-      const legacyModel = workflowConfig.models?.[workflowType];
-      
-      if (legacyProvider || legacyModel) {
-        return { provider: legacyProvider, model: legacyModel };
+    // Then check for consolidated models configuration
+    const modelConfig = this.config.models?.[workflowType];
+    if (modelConfig) {
+      if (typeof modelConfig === 'string') {
+        // Backward compatibility: string model name
+        return { model: modelConfig };
+      } else {
+        // New format: object with model and optional provider
+        return {
+          model: modelConfig.model,
+          provider: modelConfig.provider
+        };
       }
     }
+    
 
-    return undefined;
+    // Provide sensible defaults when no configuration is found
+    const defaults = {
+      review: { model: 'gpt-4o-mini' }, // Fast, cost-effective for scoring
+      improve: { model: 'gpt-4o' },     // Higher quality for content improvement
+      generate: { model: 'gpt-4o' }     // Higher quality for content generation
+    };
+
+    return defaults[workflowType];
   }
 }
 
@@ -1045,7 +1347,7 @@ async function detectProjectType(rootDir: string): Promise<keyof typeof CONTENT_
 /**
  * Get model options based on optimization preference
  */
-function getOptimizedModelOptions(config: ShakespeareConfigV2): AIModelOptions | undefined {
+function getOptimizedModelOptions(config: ShakespeareConfig): AIModelOptions | undefined {
   if (config.modelOptions) return config.modelOptions;
   
   if (config.model || config.provider) {

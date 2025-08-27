@@ -2,122 +2,17 @@
  * JSON Schema validation utilities for Shakespeare configuration
  */
 
-import { ShakespeareConfigV1, ShakespeareConfigV2 } from '@/types/interfaces';
+import { ShakespeareConfig } from '@/types/interfaces';
 
-// JSON Schema definitions (embedded for distribution)
-export const SHAKESPEARE_CONFIG_V1_SCHEMA = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://schemas.shakespeare.ai/config/v1.json",
-  "title": "Shakespeare Configuration V1 (Legacy)",
-  "description": "Legacy configuration format for Shakespeare AI content management system",
-  "type": "object",
-  "properties": {
-    "$schema": { "type": "string" },
-    "version": {
-      "type": "number",
-      "enum": [1],
-      "description": "Configuration version"
-    },
-    "contentCollection": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": ["astro", "nextjs", "gatsby", "custom"],
-          "description": "Predefined content collection type"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "baseDir": { "type": "string" },
-            "include": { "type": "array", "items": { "type": "string" } },
-            "exclude": { "type": "array", "items": { "type": "string" } },
-            "framework": { "type": "string", "enum": ["astro", "nextjs", "gatsby", "custom"] }
-          },
-          "required": ["baseDir", "include"],
-          "additionalProperties": false
-        }
-      ]
-    },
-    "verbose": { "type": "boolean" },
-    "logLevel": { "type": "string", "enum": ["error", "warn", "info", "debug"] },
-    "models": {
-      "type": "object",
-      "properties": {
-        "review": { "type": "string" },
-        "improve": { "type": "string" },
-        "generate": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "providers": {
-      "type": "object",
-      "properties": {
-        "review": { "type": "string" },
-        "improve": { "type": "string" },
-        "generate": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "workflows": {
-      "type": "object",
-      "properties": {
-        "discover": {
-          "type": "object",
-          "properties": {
-            "resetExisting": { "type": "boolean" },
-            "autoInit": { "type": "boolean" }
-          },
-          "additionalProperties": false
-        },
-        "review": {
-          "type": "object", 
-          "properties": {
-            "batchSize": { "type": "number", "minimum": 1 },
-            "estimateCosts": { "type": "boolean" },
-            "retryFailures": { "type": "boolean" }
-          },
-          "additionalProperties": false
-        },
-        "improve": {
-          "type": "object",
-          "properties": {
-            "maxCount": { "type": "number", "minimum": 1 },
-            "requireReviewFirst": { "type": "boolean" },
-            "targetThreshold": { "type": "number", "minimum": 0, "maximum": 10 }
-          },
-          "additionalProperties": false
-        },
-        "complete": {
-          "type": "object",
-          "properties": {
-            "improveCount": { "type": "number", "minimum": 1 },
-            "runDiscovery": { "type": "boolean" }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    }
-  },
-  "additionalProperties": false,
-  "not": {
-    "anyOf": [
-      { "required": ["costOptimized"] },
-      { "required": ["qualityFirst"] },
-      { "required": ["taskModelOptions"] }
-    ]
-  }
-} as const;
-
-export const SHAKESPEARE_CONFIG_V2_SCHEMA = {
+// JSON Schema definition for unified Shakespeare configuration
+export const SHAKESPEARE_CONFIG_SCHEMA = {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://schemas.shakespeare.ai/config/v2.json",
-  "title": "Shakespeare Configuration V2",
-  "description": "Current configuration format for Shakespeare AI content management system with model negotiation support",
+  "title": "Shakespeare Configuration",
+  "description": "Configuration format for Shakespeare AI content management system",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
-    "version": { "type": "number", "enum": [2] },
     "costOptimized": { "type": "boolean" },
     "qualityFirst": { "type": "boolean" },
     "model": { "type": "string" },
@@ -136,18 +31,48 @@ export const SHAKESPEARE_CONFIG_V2_SCHEMA = {
     "models": {
       "type": "object",
       "properties": {
-        "review": { "type": "string" },
-        "improve": { "type": "string" },
-        "generate": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "providers": {
-      "type": "object", 
-      "properties": {
-        "review": { "type": "string" },
-        "improve": { "type": "string" },
-        "generate": { "type": "string" }
+        "review": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "model": { "type": "string" },
+                "provider": { "type": "string" }
+              },
+              "required": ["model"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "improve": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "model": { "type": "string" },
+                "provider": { "type": "string" }
+              },
+              "required": ["model"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "generate": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "model": { "type": "string" },
+                "provider": { "type": "string" }
+              },
+              "required": ["model"],
+              "additionalProperties": false
+            }
+          ]
+        }
       },
       "additionalProperties": false
     },
@@ -180,8 +105,7 @@ export const SHAKESPEARE_CONFIG_V2_SCHEMA = {
       ]
     }
   },
-  "additionalProperties": false,
-  "not": { "required": ["workflows"] }
+  "additionalProperties": false
 } as const;
 
 /**
@@ -338,18 +262,8 @@ export class SimpleJSONSchemaValidator implements JSONSchemaValidator {
 export function validateConfigSchema(
   config: any, 
   validator: JSONSchemaValidator = new SimpleJSONSchemaValidator()
-): { valid: boolean; errors?: any[]; detectedVersion?: 1 | 2 } {
-  // Try to detect version
-  const version = config.version || 
-    (config.workflows || (config.models && !config.taskModelOptions) ? 1 : 2);
-  
-  const schema = version === 1 ? SHAKESPEARE_CONFIG_V1_SCHEMA : SHAKESPEARE_CONFIG_V2_SCHEMA;
-  const result = validator.validate(schema, config);
-  
-  return {
-    ...result,
-    detectedVersion: version as 1 | 2
-  };
+): { valid: boolean; errors?: any[] } {
+  return validator.validate(SHAKESPEARE_CONFIG_SCHEMA, config);
 }
 
 /**

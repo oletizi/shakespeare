@@ -131,7 +131,7 @@ export class MockContentScorer implements IContentScorer {
     }
   }
 
-  async scoreContent(content: string): Promise<AIContentAnalysis> {
+  async scoreContent(content: string, strategies?: any): Promise<EnhancedAIContentAnalysis> {
     const scores = this.predefinedScores?.scores || this.analyzeContentQuality(content);
     const analysis = this.predefinedScores?.analysis || {
       readability: { 
@@ -156,7 +156,17 @@ export class MockContentScorer implements IContentScorer {
       }
     };
 
-    return { scores, analysis };
+    return { 
+      analysis: { scores, analysis },
+      totalCost: 0.001,
+      costBreakdown: {
+        readability: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
+        seoScore: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
+        technicalAccuracy: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
+        engagement: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
+        contentDepth: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() }
+      }
+    };
   }
 
   private analyzeContentQuality(content: string) {
@@ -278,79 +288,28 @@ export class MockContentScorer implements IContentScorer {
     return ['Add advanced topics', 'Include case studies'];
   }
 
-  async improveContent(content: string, analysis: AIContentAnalysis): Promise<string> {
-    return this.mockImprovedContent;
-  }
-
-  async scoreContentWithCosts(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis> {
-    const analysis = await this.scoreContent(content);
+  async improveContent(content: string, analysis: AIContentAnalysis, options?: any): Promise<AIResponse> {
     return {
-      analysis,
-      totalCost: 0.005, // Mock total cost
-      costBreakdown: {
-        readability: {
-          provider: 'mock',
-          model: 'test-model',
-          inputTokens: Math.ceil(content.length / 4),
-          outputTokens: 50,
-          totalCost: 0.001,
-          timestamp: new Date().toISOString()
-        },
-        seoScore: {
-          provider: 'mock',
-          model: 'test-model',
-          inputTokens: Math.ceil(content.length / 4),
-          outputTokens: 50,
-          totalCost: 0.001,
-          timestamp: new Date().toISOString()
-        },
-        technicalAccuracy: {
-          provider: 'mock',
-          model: 'test-model',
-          inputTokens: Math.ceil(content.length / 4),
-          outputTokens: 50,
-          totalCost: 0.001,
-          timestamp: new Date().toISOString()
-        },
-        engagement: {
-          provider: 'mock',
-          model: 'test-model',
-          inputTokens: Math.ceil(content.length / 4),
-          outputTokens: 50,
-          totalCost: 0.001,
-          timestamp: new Date().toISOString()
-        },
-        contentDepth: {
-          provider: 'mock',
-          model: 'test-model',
-          inputTokens: Math.ceil(content.length / 4),
-          outputTokens: 50,
-          totalCost: 0.001,
-          timestamp: new Date().toISOString()
-        }
-      }
-    };
-  }
-
-  async improveContentWithCosts(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse> {
-    const improvedContent = await this.improveContent(content, analysis);
-    return {
-      content: improvedContent,
+      content: this.mockImprovedContent,
       costInfo: {
         provider: options?.provider || 'mock',
-        model: options?.model || 'test-model',
-        inputTokens: Math.ceil(content.length / 4),
-        outputTokens: Math.ceil(improvedContent.length / 4),
-        totalCost: 0.01, // Mock cost for improvement
+        model: options?.model || 'mock-model',
+        inputTokens: 100,
+        outputTokens: 50,
+        totalCost: 0.001,
         timestamp: new Date().toISOString()
       }
     };
   }
 
+  // Remove scoreContentWithCosts - use scoreContent directly
+
+  // Remove improveContentWithCosts - use improveContent directly
+
   async scoreContentBatch(contentList: string[], strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis[]> {
     const results: EnhancedAIContentAnalysis[] = [];
     for (const content of contentList) {
-      const result = await this.scoreContentWithCosts(content, strategies);
+      const result = await this.scoreContent(content, strategies);
       results.push(result);
     }
     return results;

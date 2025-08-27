@@ -1,7 +1,7 @@
 import { ContentEntry, ContentStatus } from '@/types/content';
 import { AIScorerOptions } from '@/utils/ai';
 import { ShakespeareLogger } from '@/utils/logger';
-import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, WorkflowConfig, ShakespeareConfigV2 } from '@/types/interfaces';
+import { IContentScanner, IContentDatabase, IContentScorer, ContentCollectionConfig, CONTENT_COLLECTIONS, AIModelOptions, ShakespeareConfig } from '@/types/interfaces';
 export * from '@/types/content';
 export * from '@/types/interfaces';
 export { GooseAI } from '@/utils/goose';
@@ -49,7 +49,7 @@ export declare class Shakespeare {
     logger: ShakespeareLogger;
     private verbose;
     /** Configuration used to create this instance */
-    readonly config: ShakespeareConfigV2;
+    readonly config: ShakespeareConfig;
     /** Model options being used for AI operations */
     readonly modelOptions?: AIModelOptions;
     /**
@@ -90,6 +90,7 @@ export declare class Shakespeare {
     getContentByStatus(status: ContentStatus): ContentEntry[];
     /**
      * Review/score a specific content file
+     * This is a convenience method that delegates to batch processing with a single item
      */
     reviewContent(path: string): Promise<void>;
     /**
@@ -98,8 +99,9 @@ export declare class Shakespeare {
     getWorstScoringContent(): string | null;
     /**
      * Improve content at the specified path
+     * This is a convenience method that delegates to batch processing with a single item
      */
-    improveContent(path: string): Promise<void>;
+    improveContent(filePath: string): Promise<void>;
     /**
      * Determine content status based on scores
      */
@@ -122,6 +124,22 @@ export declare class Shakespeare {
      * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
      */
     private log;
+    /**
+     * Review multiple files in batch with optimized AI operations
+     */
+    reviewContentBatch(filePaths: string[], batchSize?: number): Promise<WorkflowResult>;
+    /**
+     * Improve multiple files in batch
+     */
+    improveContentBatch(filePaths: string[], batchSize?: number): Promise<WorkflowResult>;
+    /**
+     * Review all content using batch processing for better performance
+     */
+    reviewAllBatch(batchSize?: number): Promise<WorkflowResult>;
+    /**
+     * Improve worst-scoring content using batch processing
+     */
+    improveWorstBatch(count?: number, batchSize?: number): Promise<WorkflowResult>;
     /**
      * Discover content and provide detailed reporting
      */
@@ -160,23 +178,27 @@ export declare class Shakespeare {
      * @param rootDir - The root directory to operate in
      * @param config - Configuration options
      */
-    static create(rootDir: string, config?: ShakespeareConfigV2): Promise<Shakespeare>;
+    static create(rootDir: string, config?: ShakespeareConfig): Promise<Shakespeare>;
     /**
      * Create Shakespeare from configuration file or database config
      */
     static fromConfig(configPath?: string): Promise<Shakespeare>;
     /**
-     * Convert WorkflowConfig to ShakespeareConfig
+     * Convert ShakespeareConfig to ShakespeareConfig
      */
-    static workflowConfigToShakespeareConfig(workflowConfig: WorkflowConfig): Promise<ShakespeareConfigV2>;
+    static workflowConfigToShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<ShakespeareConfig>;
     /**
      * Save workflow configuration to the content database
      */
-    saveWorkflowConfig(workflowConfig: WorkflowConfig): Promise<void>;
+    saveShakespeareConfig(workflowConfig: ShakespeareConfig): Promise<void>;
     /**
      * Get current workflow configuration from database
      */
-    getWorkflowConfig(): Promise<WorkflowConfig | undefined>;
+    getShakespeareConfig(): Promise<ShakespeareConfig | undefined>;
+    /**
+     * Get model information as a formatted string for display
+     */
+    getModelInfoString(workflowType: 'review' | 'improve' | 'generate'): Promise<string>;
     /**
      * Get workflow-specific model options for an operation type
      */

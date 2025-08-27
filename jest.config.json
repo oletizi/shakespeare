@@ -22,5 +22,50 @@
         "target": "ES2022"
       }
     }
+  },
+  "collectCoverage": false,
+  "collectCoverageFrom": [
+    "src/**/*.{ts,js}",
+    "!src/**/*.d.ts",
+    "!src/types/**",
+    "!src/scripts/**"
+  ],
+  "coverageDirectory": "coverage",
+  "coverageReporters": [
+    "text",
+    "lcov",
+    "html"
+  ],
+  "coverageThreshold": {
+    "global": {
+      "statements": 55,
+      "branches": 45,
+      "functions": 55,
+      "lines": 55
+    },
+    "./src/utils/config.ts": {
+      "statements": 9,
+      "branches": 0,
+      "functions": 0,
+      "lines": 9
+    },
+    "./src/utils/database.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95
+    },
+    "./src/utils/scanner.ts": {
+      "statements": 95,
+      "branches": 90,
+      "functions": 95,
+      "lines": 95
+    },
+    "./src/utils/goose.ts": {
+      "statements": 80,
+      "branches": 75,
+      "functions": 65,
+      "lines": 80
+    }
   }
 }
