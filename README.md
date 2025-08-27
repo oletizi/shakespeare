@@ -1,5 +1,10 @@
 # @oletizi/shakespeare
 
+[![npm version](https://img.shields.io/npm/v/@oletizi/shakespeare.svg)](https://www.npmjs.com/package/@oletizi/shakespeare)
+[![codecov](https://codecov.io/gh/oletizi/shakespeare/branch/main/graph/badge.svg)](https://codecov.io/gh/oletizi/shakespeare)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+
 AI-driven content review and improvement system with configurable content collection support.
 
 ## Features
@@ -255,11 +260,33 @@ Add to `.gitignore`:
 # Run all tests (unit + integration, excludes smoke tests)
 npm test
 
+# Run tests with coverage report
+npm run test:coverage
+
 # Run integration tests only (uses mocks)
 npm run test:integration  
 
 # Run smoke tests manually (requires real AI configuration & expensive API calls)
 npm run test:smoke
+```
+
+### Test Coverage
+
+The project maintains comprehensive test coverage with automatic threshold enforcement:
+
+- **Coverage Badge**: Automatically updated via GitHub Actions and Codecov
+- **Coverage Reports**: Generated in `coverage/` directory  
+- **HTML Report**: View detailed coverage at `coverage/index.html`
+- **Thresholds**: Configured per-file minimums to maintain code quality
+- **CI Integration**: Coverage uploaded to Codecov on every push/PR
+
+```bash
+# View coverage summary in terminal
+npm run test:coverage
+
+# Open detailed HTML coverage report
+open coverage/index.html  # macOS
+start coverage/index.html # Windows
 ```
 
 **Note**: Smoke tests are excluded from the default test suite (`npm test`) because they make real AI API calls which can be expensive. Run them manually only when needed for end-to-end verification.
