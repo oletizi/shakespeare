@@ -43,7 +43,7 @@ const commonOptions = {
   format: 'esm',
   plugins: [aliasPlugin],
   bundle: true,
-  external: ['dotenv'], // Don't bundle dependencies
+  external: ['dotenv', 'winston'], // Don't bundle dependencies that have dynamic requires
   sourcemap: true,
 };
 
@@ -56,6 +56,16 @@ async function buildAll() {
       ...commonOptions,
       entryPoints: ['src/index.ts'],
       outfile: 'dist/index.js',
+    });
+
+    // Build CLI
+    await build({
+      ...commonOptions,
+      entryPoints: ['src/cli.ts'],
+      outfile: 'dist/cli.js',
+      banner: {
+        js: '#!/usr/bin/env node'
+      }
     });
 
     // Build scripts
@@ -72,6 +82,10 @@ async function buildAll() {
     
     // Generate TypeScript declarations using tsc
     execSync('tsc --emitDeclarationOnly', { stdio: 'inherit' });
+
+    // Make CLI executable
+    console.log('🔧 Setting CLI permissions...');
+    execSync('chmod +x dist/cli.js', { stdio: 'inherit' });
 
     console.log('✅ Build completed successfully');
   } catch (error) {

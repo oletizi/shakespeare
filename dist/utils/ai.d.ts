@@ -1,5 +1,5 @@
 import { QualityDimensions } from '@/types/content';
-import { IAI, IContentScorer } from '@/types/interfaces';
+import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse } from '@/types/interfaces';
 export interface AIScoreResponse {
     score: number;
     reasoning: string;
@@ -35,7 +35,7 @@ export interface AIScorerOptions {
     ai?: IAI;
 }
 /**
- * AI scoring system implementation
+ * AI scoring system implementation with cost optimization
  */
 export declare class AIScorer implements IContentScorer {
     private ai;
@@ -52,6 +52,30 @@ export declare class AIScorer implements IContentScorer {
      * Generate improved content based on analysis
      */
     improveContent(content: string, analysis: AIContentAnalysis): Promise<string>;
+    /**
+     * Enhanced scoring with cost tracking and model selection
+     */
+    scoreContentWithCosts(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis>;
+    /**
+     * Enhanced content improvement with cost tracking
+     */
+    improveContentWithCosts(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
+    /**
+     * Batch scoring for cost optimization
+     */
+    scoreContentBatch(contentList: string[], strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis[]>;
+    /**
+     * Estimate cost for scoring operation
+     */
+    estimateScoringCost(content: string, strategies?: ScoringStrategy[]): Promise<number>;
+    /**
+     * Estimate cost for improvement operation
+     */
+    estimateImprovementCost(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<number>;
+    /**
+     * Score a specific dimension with cost tracking
+     */
+    private scoreDimensionWithCost;
 }
 /**
  * Factory function for creating AIScorer instances

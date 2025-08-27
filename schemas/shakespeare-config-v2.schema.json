@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.shakespeare.ai/config/v2.json",
+  "title": "Shakespeare Configuration V2",
+  "description": "Current configuration format for Shakespeare AI content management system with model negotiation support",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE support"
+    },
+    "version": {
+      "type": "number",
+      "enum": [2],
+      "description": "Configuration version"
+    },
+    "costOptimized": {
+      "type": "boolean",
+      "description": "Use cost-optimized models (cheap, fast)"
+    },
+    "qualityFirst": {
+      "type": "boolean",
+      "description": "Use quality-first models (expensive, best results)"
+    },
+    "model": {
+      "type": "string",
+      "description": "Override specific model for all operations"
+    },
+    "provider": {
+      "type": "string",
+      "description": "Override specific provider for all operations"
+    },
+    "modelOptions": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Provider name (e.g., 'openai', 'anthropic', 'google')"
+        },
+        "model": {
+          "type": "string",
+          "description": "Specific model name (e.g., 'gpt-4o-mini', 'claude-3-5-haiku')"
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Temperature for response generation"
+        },
+        "maxTokens": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Maximum tokens for response"
+        },
+        "providerConfig": {
+          "type": "object",
+          "description": "Custom configuration for specific providers",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "object",
+      "properties": {
+        "review": {
+          "type": "string",
+          "description": "Model for content review/scoring operations"
+        },
+        "improve": {
+          "type": "string",
+          "description": "Model for content improvement operations"
+        },
+        "generate": {
+          "type": "string",
+          "description": "Model for content generation operations"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Task-specific model configuration for model negotiation"
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "review": {
+          "type": "string",
+          "description": "Provider for content review/scoring operations"
+        },
+        "improve": {
+          "type": "string",
+          "description": "Provider for content improvement operations"
+        },
+        "generate": {
+          "type": "string",
+          "description": "Provider for content generation operations"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Task-specific provider configuration for model negotiation"
+    },
+    "taskModelOptions": {
+      "type": "object",
+      "properties": {
+        "review": {
+          "$ref": "#/properties/modelOptions",
+          "description": "Model options for review operations"
+        },
+        "improve": {
+          "$ref": "#/properties/modelOptions",
+          "description": "Model options for improve operations"
+        },
+        "generate": {
+          "$ref": "#/properties/modelOptions",
+          "description": "Model options for generate operations"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Task-specific model options configuration for advanced model negotiation"
+    },
+    "verbose": {
+      "type": "boolean",
+      "description": "Enable verbose progress reporting"
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": ["error", "warn", "info", "debug"],
+      "description": "Log level for structured logging"
+    },
+    "dbPath": {
+      "type": "string",
+      "description": "Database path override (relative to config file location)"
+    },
+    "contentCollection": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["astro", "nextjs", "gatsby", "custom"],
+          "description": "Predefined content collection type"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "baseDir": {
+              "type": "string",
+              "description": "Base directory to scan for content"
+            },
+            "include": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "File patterns to include (glob patterns)"
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "File patterns to exclude (glob patterns)"
+            },
+            "framework": {
+              "type": "string",
+              "enum": ["astro", "nextjs", "gatsby", "custom"],
+              "description": "Framework-specific settings"
+            }
+          },
+          "required": ["baseDir", "include"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "not": {
+    "required": ["workflows"]
+  },
+  "examples": [
+    {
+      "version": 2,
+      "contentCollection": "astro",
+      "verbose": true,
+      "logLevel": "debug",
+      "models": {
+        "review": "gemini-1.5-flash-8b",
+        "improve": "claude-3-5-sonnet",
+        "generate": "claude-3-5-sonnet"
+      },
+      "providers": {
+        "review": "google",
+        "improve": "anthropic",
+        "generate": "anthropic"
+      }
+    },
+    {
+      "version": 2,
+      "costOptimized": true,
+      "contentCollection": "nextjs"
+    },
+    {
+      "version": 2,
+      "qualityFirst": true,
+      "verbose": true
+    }
+  ]
+}

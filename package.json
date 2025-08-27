@@ -1,10 +1,13 @@
 {
   "name": "@oletizi/shakespeare",
-  "version": "1.0.4",
+  "version": "1.7.0",
   "description": "AI-driven content review and improvement system with configurable content collection support",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "shakespeare": "dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,6 +17,7 @@
   },
   "files": [
     "dist",
+    "schemas",
     "README.md",
     "CHANGELOG.md"
   ],
@@ -80,6 +84,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "winston": "^3.17.0"
   }
 }

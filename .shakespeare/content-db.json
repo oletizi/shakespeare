@@ -1,4 +1,46 @@
 {
-  "lastUpdated": "2025-08-26T06:08:52.970Z",
-  "entries": {}
+  "lastUpdated": "2025-08-26T11:11:37.386Z",
+  "entries": {
+    "../test-content.md": {
+      "path": "../test-content.md",
+      "currentScores": {
+        "readability": 0,
+        "seoScore": 0,
+        "technicalAccuracy": 0,
+        "engagement": 0,
+        "contentDepth": 0
+      },
+      "targetScores": {
+        "readability": 8,
+        "seoScore": 8.5,
+        "technicalAccuracy": 9,
+        "engagement": 8,
+        "contentDepth": 8.5
+      },
+      "lastReviewDate": "2025-08-26T10:24:07.728Z",
+      "improvementIterations": 0,
+      "status": "needs_review",
+      "reviewHistory": []
+    }
+  },
+  "config": {
+    "contentCollection": "astro",
+    "verbose": true,
+    "models": {
+      "review": "gpt-4o-mini",
+      "improve": "claude-3-5-sonnet",
+      "generate": "claude-3-5-sonnet"
+    },
+    "providers": {
+      "review": "openai",
+      "improve": "anthropic",
+      "generate": "anthropic"
+    },
+    "workflows": {
+      "improve": {
+        "maxCount": 3,
+        "requireReviewFirst": true
+      }
+    }
+  }
 }

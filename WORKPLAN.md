@@ -1,473 +1,184 @@
-# Shakespeare Module - Development Workplan
+# Cost-Optimized Pipeline Enhancement for Shakespeare
 
-## Project Overview
+## Overview
 
-Shakespeare is an AI-driven content review and improvement system built in TypeScript. It scans markdown files, analyzes them across multiple quality dimensions using AI, and provides automated content improvement suggestions.
+This workplan enhances Shakespeare's existing workflow (content discovery → content rating → iterative improvement) with cost-optimized AI model selection and batch processing capabilities as described in MODEL-TASK-FIT.md.
 
-### Module Status: **Core Complete - Ready for Phase 3** ✅
+**Current Shakespeare Workflow**:
+1. **discoverContent()** - Lightweight content discovery without AI scoring
+2. **reviewContent()** - AI scoring for discovered content (5 quality dimensions)  
+3. **getWorstScoringContent()** - Identifies content needing improvement
+4. **improveContent()** - Iterative AI-powered content improvement
 
-Last updated: 2025-01-26
+**Enhancement Goal**: Reduce AI costs by 60-75% while maintaining quality through intelligent model selection and batch processing.
 
-**Current Status**: Phases 1 & 2 completed successfully! Core functionality implemented with **89.07% test coverage** including comprehensive integration tests. Module is production-ready with 46 passing tests covering all major workflows.
+## Cost Optimization Strategy
+
+### Model Selection by Task Complexity
+- **Light Tasks (Scoring)**: Gemini Flash, GPT-4o Mini (75% cost savings)
+- **Medium Tasks (Analysis)**: Claude 3.5 Haiku, DeepSeek-Chat (60% cost savings)  
+- **Heavy Tasks (Improvement)**: Current models with batch processing (50% cost savings)
+
+### Batch Processing
+- **Nightly Review Batches**: Process 100+ files via batch APIs (50% additional savings)
+- **Improvement Queues**: Group similar improvements for batch processing
+- **Cost Budgeting**: Set daily/monthly AI spending limits
+
+## Implementation Plan
+
+### Phase 1: Model Configuration & Provider Abstraction (Week 1)
+
+#### Task 1.1: Extend IAI Interface for Multi-Model Support
+- [ ] Add model selection and configuration to existing `IAI` interface
+- [ ] Add cost tracking and token estimation capabilities
+- [ ] Extend `IContentScorer` for model-specific scoring strategies
+
+#### Task 1.2: Multi-Provider Implementation
+- [ ] **Option A: Enhanced GooseAI with Dynamic Model Selection**
+  - Extend current `GooseAI` class to support `--provider` and `--model` CLI flags
+  - Add methods to switch models on-the-fly (e.g., `prompt(text, {provider: 'anthropic', model: 'claude-3-5-haiku'})`)
+  - Leverage Goose's built-in support for 20+ providers including OpenAI, Anthropic, Google, Groq, DeepInfra
+  - Use environment variables for API keys and configuration management
+
+- [ ] **Option B: Tetrate Agent Router Service Integration**
+  - Create `TetrateLLMProvider` class implementing existing `IAI` interface
+  - Use Tetrate's OpenAI-compatible endpoint with intelligent routing
+  - Access models from OpenAI, Anthropic, Google, xAI Grok, Groq, DeepInfra through single API
+  - Implement cost-aware model selection and automatic failover
+
+- [ ] **Implementation Decision**: Start with Option A (enhanced GooseAI) for immediate cost optimization, with Option B (Tetrate) as advanced routing for production scale
+- [ ] Maintain backward compatibility with current `GooseAI` implementation
+
+#### Task 1.3: Cost-Optimized Model Selection
+- [ ] Implement task-based model selection in `AIScorer.scoreContent()`
+- [ ] Add cost estimation before AI calls
+- [ ] Create model selection configuration for different quality dimensions
+
+### Phase 2: Batch Processing for Existing Workflow (Week 2)
+
+#### Task 2.1: Batch Review Operations  
+- [ ] Add `reviewContentBatch()` method to Shakespeare class
+- [ ] Queue multiple `reviewContent()` calls for batch processing
+- [ ] Implement batch API support for scoring operations
+- [ ] Add progress tracking for batch review operations
+
+#### Task 2.2: Batch Improvement Operations
+- [ ] Add `improveContentBatch()` method for processing multiple worst-scoring files
+- [ ] Group similar improvement tasks for cost efficiency  
+- [ ] Add batch scheduling (nightly processing) via new CLI scripts
+
+#### Task 2.3: Enhanced CLI Scripts
+- [ ] Modify existing `scripts/updateContentIndex.ts` to support batch operations
+- [ ] Enhance `scripts/improveContent.ts` with batch processing and model selection
+- [ ] Add new `scripts/batchReview.ts` for nightly review processing
+- [ ] Add cost reporting to CLI output
+
+### Phase 3: Cost Monitoring Integration (Week 3)
+
+#### Task 3.1: Cost Tracking in Database
+- [ ] Extend `ContentEntry` type to track AI costs per operation
+- [ ] Add cost summaries to `ContentDatabase`
+- [ ] Track model usage and costs in review history
+
+#### Task 3.2: Budget Controls
+- [ ] Add cost limits to Shakespeare configuration
+- [ ] Implement budget checking before expensive operations
+- [ ] Add cost alerts and reporting
+
+### Phase 4: Quality Validation Enhancements (Week 4)
+
+#### Task 4.1: Light-Weight Quality Gates
+- [ ] Add fast grammar/style checking with cheap models before expensive improvements
+- [ ] Implement duplicate content detection using existing content database
+- [ ] Add quality threshold validation before improvement iterations
+
+#### Task 4.2: Smart Improvement Targeting  
+- [ ] Enhance `getWorstScoringContent()` with cost-benefit analysis
+- [ ] Prioritize improvements with highest impact/cost ratio
+- [ ] Add improvement effectiveness tracking
+
+## Integration with Existing Shakespeare Architecture
+
+### Current Components to Enhance
+
+1. **ContentScanner** (`@/utils/scanner`): No changes needed - existing content discovery works perfectly
+2. **ContentDatabaseHandler** (`@/utils/database`): Add cost tracking fields to database schema  
+3. **AIScorer** (`@/utils/ai`): Add multi-provider support and cost-based model selection
+4. **Shakespeare Class** (`@/index`): Add batch processing methods alongside existing workflow methods
+5. **GooseAI** (`@/utils/goose`): Keep as default provider, add as one option among many
+
+### Enhancement Strategy
+
+**Maintain Existing API**: All current methods (`discoverContent`, `reviewContent`, `improveContent`, etc.) continue to work unchanged.
+
+**Add Batch Variants**: New methods like `reviewContentBatch()` and `improveContentBatch()` that internally use cost-optimized models and batch processing.
+
+**Incremental Migration**: Users can gradually migrate from single operations to batch operations based on their needs.
+
+## Expected Cost Savings
+
+| Shakespeare Operation | Current Cost* | Optimized Cost | Savings |
+|----------------------|--------------|----------------|---------|
+| **reviewContent()** (5-dimension scoring) | $0.15/file | $0.04/file | 73% |
+| **improveContent()** (analysis + generation) | $0.45/file | $0.18/file | 60% |
+| **Batch Operations** (50+ files) | Above × 50 | Above × 50 × 0.5 | Additional 50% |
+
+*Estimated costs based on typical content file sizes and current model pricing*
+
+### Cost Optimization Examples
+
+**Single File Review**: $0.15 → $0.04 (using Gemini Flash instead of premium models)  
+**Batch Review (100 files)**: $15 → $2 (model optimization + batch API discounts)  
+**Daily Improvement Run**: $22.50 → $5.40 (76% reduction)
+
+**Monthly Savings**: For a site processing 1000 files/month: $600 → $144 (**$456 monthly savings**)
+
+## Success Metrics
+
+### Cost Efficiency
+- [ ] Achieve 60%+ cost reduction for individual operations via model optimization
+- [ ] Achieve additional 50% savings via batch processing (75% total savings)
+- [ ] Monthly AI costs under $200 for sites processing 1000+ files
+
+### Quality Maintenance
+- [ ] Quality scores maintained within 5% of current baseline  
+- [ ] All 5 quality dimensions continue to work reliably
+- [ ] User satisfaction with improved content quality maintained
+
+### Performance  
+- [ ] Batch operations process 100+ files within 2-hour windows
+- [ ] Individual operations maintain sub-60 second response times
+- [ ] 99%+ reliability for batch job completion
+
+## Implementation Notes
+
+### Backward Compatibility
+- All existing Shakespeare methods continue to work unchanged
+- Existing CLI scripts maintain current functionality
+- Current database schema extended, not replaced
+- GooseAI remains available as a provider option
+
+### First Implementation Priority
+Start with **Phase 1: Model Configuration & Provider Abstraction** to establish the foundation for cost optimization while maintaining full backward compatibility with the existing system.
+
+### Testing Strategy
+- Extend existing comprehensive test suite (89.07% coverage)
+- Add cost estimation testing with mock providers
+- Add batch operation integration tests
+- Maintain existing quality assurance standards
+
+## Risk Mitigation
+
+### Quality Risks
+- **Model Performance**: Continuous A/B testing against current baseline
+- **Batch Failures**: Individual fallback for failed batch operations  
+- **Provider Outages**: Multi-provider failover with existing GooseAI as backup
+
+### Cost Risks
+- **Budget Overruns**: Hard spending limits with automatic shutoff
+- **Provider Changes**: Abstract interface allows quick provider swapping
+- **Batch Failures**: Cost tracking prevents duplicate charges
 
 ---
 
-## ✅ **COMPLETED TASKS**
-
-### Core Architecture (✅ Done)
-- ✅ Project structure established with proper TypeScript configuration
-- ✅ `@/` import pattern configured in tsconfig.json
-- ✅ Package renamed to `@oletizi/shakespeare`
-- ✅ Core Shakespeare class implemented with main API
-- ✅ Content types defined (QualityDimensions, ContentEntry, etc.)
-- ✅ ContentScanner class for markdown file discovery
-- ✅ ContentDatabaseHandler for persistent storage
-- ✅ AIScorer class with comprehensive prompts for 5 quality dimensions
-- ✅ GooseAI wrapper for AI interaction
-- ✅ Constants file with default target scores
-- ✅ Basic CLI scripts (updateContentIndex, improveContent)
-- ✅ Initial Jest testing setup
-- ✅ CLAUDE.md project guidelines created
-
-### Quality Dimensions Implemented (✅ Done)
-- ✅ Readability scoring and analysis
-- ✅ SEO effectiveness scoring
-- ✅ Technical accuracy evaluation
-- ✅ Engagement level assessment
-- ✅ Content depth analysis
-
----
-
-## 🚧 **IN PROGRESS TASKS**
-
-*Currently no tasks in progress*
-
----
-
-## 📋 **PENDING TASKS**
-
-### **Phase 1: Fix Critical Issues (High Priority)** ✅ **COMPLETED**
-
-#### 1. Fix Test Suite Issues ✅ **COMPLETED**
-- ✅ **Fix TypeScript compilation errors in tests**
-  - Fixed callback type issues in goose.test.ts 
-  - Replaced module mocking with dependency injection
-- ✅ **Fix test timeouts and hangs**
-  - Replaced actual Goose AI calls with mock implementations
-  - All tests now run deterministically and quickly
-- ✅ **Test content file exists**
-  - `test/content/typescript-generics.md` was already present
-
-#### 2. Implement Proper Dependency Injection ✅ **COMPLETED**
-- ✅ **Refactor AIScorer class**
-  - Added constructor options with IAI interface
-  - GooseAI now properly implements IAI interface
-- ✅ **Refactor Shakespeare class**
-  - Added constructor options for all dependencies (scanner, database, ai)
-  - All dependencies use interfaces for better testability
-- ✅ **Update factory functions**
-  - Added factory functions for all classes
-  - Follows CLAUDE.md guidelines for DI patterns
-
-### **Phase 2: Enhanced Testing (High Priority)** ✅ **COMPLETED**
-
-#### 3. Achieve High Test Coverage (Target: 85%+) ✅ **COMPLETED - 89.07%**
-- ✅ **Unit tests for all utility classes**
-  - ContentScanner comprehensive tests (file discovery, error handling, nested directories)
-  - ContentDatabaseHandler tests (CRUD operations, file I/O errors, persistence)
-  - GooseAI basic interface tests (CLI interaction testing deferred to integration)
-- ✅ **Integration tests for Shakespeare class**
-  - End-to-end workflow testing with real file system operations
-  - Real database persistence testing across instances
-  - Error handling and edge cases (non-existent files, different score ranges)
-  - Content improvement iteration testing with actual file updates
-- ✅ **Add test utilities and fixtures**
-  - Mock implementations for all interfaces (no module stubbing)
-  - Test content files with deterministic responses
-  - Reusable MockAI, MockDatabase, MockScanner classes
-
-#### **Integration Test Coverage** ✅ **COMPLETED - 13 Tests**
-- ✅ **updateContentIndex workflow**: Real filesystem scanning, database creation, duplicate handling
-- ✅ **getWorstScoringContent**: Accurate identification of lowest-scoring content
-- ✅ **improveContent workflow**: File modification, database updates, score tracking
-- ✅ **Content status determination**: Proper status assignment based on score averages
-- ✅ **Database persistence**: Cross-instance data persistence and corruption handling
-- ✅ **Error handling**: File system permissions, mixed content types, invalid paths
-
-#### 4. Error Handling and Resilience ✅ **COMPLETED**
-- ✅ **Implement robust error handling**
-  - Network failure scenarios (AI service unavailable)
-  - File system errors (non-existent files/directories)
-  - Invalid content format handling
-  - Malformed AI responses with graceful fallbacks
-- ✅ **Add input validation**
-  - Path validation in all file operations
-  - Entry existence validation before operations
-  - TypeScript strict typing for all interfaces
-- ✅ **Add logging system**
-  - Error logging with console.error for debugging
-  - Descriptive error messages with context
-  - Graceful degradation on failures
-
-### **Phase 3: Features and Usability (Medium Priority)**
-
-#### 5. Enhanced CLI Interface
-- [ ] **Improve CLI scripts**
-  - Add progress bars for long operations
-  - Better error messages and user feedback
-  - Configuration file support (without violating CLAUDE.md rules)
-  - Help text and usage documentation
-- [ ] **Add new CLI commands**
-  - `status` - show current content database stats
-  - `report` - generate quality report for all content
-  - `config` - manage target scores and settings
-  - `validate` - check content without scoring
-
-#### 6. Content Analysis Improvements
-- [ ] **Enhance AI prompt engineering**
-  - Test and refine prompts for better scoring accuracy
-  - Add examples to prompts for consistency
-  - Implement prompt versioning for reproducible results
-- [ ] **Add content format support**
-  - Support for different markdown flavors
-  - Handle frontmatter and metadata
-  - Code block analysis for technical content
-- [ ] **Implement batch processing**
-  - Parallel processing of multiple files
-  - Rate limiting for AI API calls
-  - Resume interrupted batch operations
-
-### **Phase 4: Advanced Features (Lower Priority)**
-
-#### 7. Analytics and Reporting
-- [ ] **Rich reporting system**
-  - HTML/PDF report generation
-  - Trend analysis over time
-  - Content performance metrics dashboard
-- [ ] **Content recommendations**
-  - Suggest related content for improvement
-  - Identify content gaps in knowledge base
-  - Recommend content promotion strategies
-
-#### 8. Integration and Extensibility
-- [ ] **Plugin system**
-  - Custom quality dimensions
-  - Alternative AI providers (OpenAI, Claude, etc.)
-  - Custom content processors
-- [ ] **CI/CD integration**
-  - GitHub Actions workflow
-  - Pre-commit hooks for content quality
-  - Automated quality gates
-
-### **Phase 5: Publishing and Documentation (Before Release)**
-
-#### 9. Package Preparation
-- [ ] **Build and distribution**
-  - Optimize build process
-  - Generate proper TypeScript declarations
-  - Test package installation and usage
-- [ ] **Documentation**
-  - API documentation (TypeDoc)
-  - Usage examples and tutorials
-  - Configuration reference
-  - Troubleshooting guide
-- [ ] **Publishing preparation**
-  - NPM package optimization
-  - Semantic versioning setup
-  - Release automation
-
----
-
-## 🧪 **INTEGRATION TESTS DOCUMENTATION**
-
-### **Overview**
-
-Comprehensive integration tests have been implemented to verify end-to-end functionality with real file system operations. These tests complement the unit tests by validating that all components work together correctly in realistic scenarios.
-
-**Location**: `test/integration/shakespeare.integration.test.ts`  
-**Test Count**: 13 integration tests  
-**Coverage Impact**: Increased overall coverage from 88.52% to 89.07%
-
-### **Test Setup and Architecture**
-
-#### **Test Environment**
-- **Real File System**: Uses actual directories and files (not mocked)
-- **Controlled AI Responses**: Uses MockAI with deterministic responses for consistent testing
-- **Persistent Test Directory**: Creates git-ignored test environment at `test-output/integration/`
-- **Artifact Preservation**: Test results preserved for inspection and review
-
-#### **Test Data Structure**
-```
-test-output/integration/
-├── README.md                # Documentation explaining test artifacts
-├── content/
-│   ├── article1.md          # TypeScript introduction (7.1 avg score)
-│   ├── article2.md          # React patterns (8.4 avg score)  
-│   ├── article3.md          # Short article (4.3 avg score - worst)
-│   └── nested/
-│       └── nested-article.md # Nested content (6.3 avg score)
-└── .shakespeare/
-    └── content-db.json      # Real database file with full analysis data
-```
-
-#### **Inspecting Test Results**
-
-After running integration tests, you can examine the real-world output:
-
-```bash
-# View the database structure and scores
-cat test-output/integration/.shakespeare/content-db.json
-
-# Examine test content files  
-ls -la test-output/integration/content/
-
-# Read test articles to see actual content being analyzed
-cat test-output/integration/content/article1.md
-```
-
-### **Integration Test Categories**
-
-#### **1. updateContentIndex Workflow Tests (3 tests)**
-
-**Purpose**: Validate complete content discovery and database population workflow
-
-- **Real Filesystem Scanning**: Verifies recursive markdown file discovery
-- **Database Creation**: Confirms JSON database file creation with proper structure
-- **Score Processing**: Tests AI integration for all 5 quality dimensions
-- **Duplicate Prevention**: Ensures subsequent runs don't duplicate entries
-- **New File Detection**: Validates detection of files added after initial scan
-
-**Key Validations**:
-```typescript
-// Verifies all 4 markdown files are found and processed
-expect(Object.keys(dbData.entries)).toHaveLength(4);
-
-// Confirms proper entry structure
-expect(article1Entry.currentScores.readability).toBe(7.0);
-expect(article1Entry.status).toBe('needs_improvement');
-expect(article1Entry.reviewHistory).toHaveLength(1);
-```
-
-#### **2. getWorstScoringContent Tests (2 tests)**
-
-**Purpose**: Validate content ranking and identification logic
-
-- **Score-Based Ranking**: Confirms correct identification of lowest-scoring content
-- **Target Achievement Handling**: Tests null return when all content meets targets
-- **Average Score Calculation**: Verifies proper score averaging across dimensions
-
-**Key Validations**:
-```typescript
-// Based on mock scores, article3.md should be worst (average ~4.3)
-const expectedWorstPath = path.join(contentDir, 'article3.md');
-expect(worstContentPath).toBe(expectedWorstPath);
-```
-
-#### **3. improveContent Workflow Tests (2 tests)**
-
-**Purpose**: Validate end-to-end content improvement process
-
-- **File Modification**: Confirms actual file content is updated
-- **Database Updates**: Verifies iteration counts and score updates
-- **Review History**: Tests proper tracking of improvement history
-- **Error Handling**: Validates graceful handling of non-existent files
-
-**Key Validations**:
-```typescript
-// Verify file was actually updated
-const improvedContent = await fs.readFile(targetPath, 'utf-8');
-expect(improvedContent).not.toBe(originalContent);
-
-// Verify database tracking
-expect(entry.improvementIterations).toBe(1);
-expect(entry.reviewHistory).toHaveLength(2);
-```
-
-#### **4. Content Status Determination Tests (1 test)**
-
-**Purpose**: Validate status assignment logic based on score averages
-
-- **Status Categories**: Tests all three status levels
-  - `needs_review`: Average score < 7.0
-  - `needs_improvement`: 7.0 ≤ average score < 8.5  
-  - `meets_targets`: Average score ≥ 8.5
-- **Score Thresholds**: Confirms proper boundary conditions
-
-**Key Validations**:
-```typescript
-// article3.md: low scores (avg ~4.3) → needs_review
-expect(dbData.entries[article3Path].status).toBe('needs_review');
-
-// article1.md: medium scores (avg ~7.1) → needs_improvement  
-expect(dbData.entries[article1Path].status).toBe('needs_improvement');
-```
-
-#### **5. Database Persistence Tests (3 tests)**
-
-**Purpose**: Validate data persistence and consistency across instances
-
-- **Cross-Instance Loading**: Tests database loading in new Shakespeare instances
-- **Data Integrity**: Confirms all data is preserved correctly
-- **Corruption Handling**: Tests graceful handling of invalid JSON
-- **Timestamp Management**: Verifies proper lastUpdated tracking
-
-**Key Validations**:
-```typescript
-// Create new instance and verify data persistence
-const shakespeare2 = new Shakespeare(contentDir, dbPath);
-await shakespeare2.initialize();
-const dbData2 = shakespeare2.getData();
-
-expect(Object.keys(dbData2.entries)).toHaveLength(originalEntryCount);
-expect(dbData2.entries[article1Path].currentScores.readability).toBe(7.0);
-```
-
-#### **6. Error Handling Tests (2 tests)**
-
-**Purpose**: Validate robust error handling in realistic failure scenarios
-
-- **File System Permissions**: Tests handling of inaccessible directories
-- **Mixed Content Types**: Confirms proper filtering of non-markdown files
-- **Path Validation**: Tests handling of invalid or restricted paths
-
-**Key Validations**:
-```typescript
-// Should only process markdown files, ignore others
-expect(Object.keys(dbData.entries)).toHaveLength(4); // Still 4 .md files
-expect(allPaths.every(p => p.endsWith('.md'))).toBe(true);
-```
-
-### **Mock AI Response Strategy**
-
-#### **Deterministic Testing Approach**
-- **Predictable Responses**: Pre-defined responses for each quality dimension
-- **Score Consistency**: Consistent scoring patterns for reliable test outcomes
-- **Response Ordering**: Careful management of response consumption order
-
-#### **Sample AI Response Pattern**
-```typescript
-const aiResponses = [
-  // article1.md scores (5 dimensions)
-  '7.0\nDecent readability but could be improved\n- Add more examples',
-  '6.5\nBasic SEO structure\n- Add more keywords',
-  '8.5\nTechnically accurate\n- Update examples',
-  '6.0\nSomewhat engaging\n- Add interactive examples', 
-  '7.5\nGood depth for introduction\n- Expand concepts',
-  
-  // article2.md scores... (and so on)
-];
-```
-
-### **Integration vs Unit Test Coverage**
-
-| Component | Unit Test Coverage | Integration Test Coverage | Combined Benefit |
-|-----------|-------------------|---------------------------|------------------|
-| **ContentScanner** | File discovery logic | Real filesystem operations | Complete I/O validation |
-| **ContentDatabase** | CRUD operations | Cross-instance persistence | Data integrity assurance |
-| **AIScorer** | Error handling | End-to-end AI workflow | Complete analysis pipeline |
-| **Shakespeare** | Individual methods | Full workflow integration | Production readiness |
-
-### **Test Execution Performance**
-
-- **Execution Time**: ~0.8 seconds for all 13 integration tests
-- **File System Impact**: Minimal (uses temporary directories with cleanup)
-- **Memory Usage**: Low (sequential test execution with proper cleanup)
-- **Reliability**: 100% consistent results with deterministic AI responses
-
-### **Maintenance and Extensions**
-
-#### **Adding New Integration Tests**
-1. **Follow Existing Pattern**: Use the established setup/cleanup structure
-2. **Add AI Responses**: Extend the mock response array for new test scenarios
-3. **Validate End-to-End**: Ensure tests cover complete workflows, not just unit functionality
-4. **Clean Up Resources**: Always include proper afterEach cleanup
-
-#### **Test Data Management**
-- **Content Files**: Add new test markdown files to cover edge cases
-- **Score Scenarios**: Create files with different score patterns for comprehensive testing  
-- **Error Conditions**: Include files that trigger specific error handling paths
-
-#### **Future Integration Test Areas**
-- **CLI Script Integration**: Test the actual CLI scripts with real arguments
-- **Large File Handling**: Test performance with larger content sets
-- **Concurrent Operations**: Test multiple simultaneous Shakespeare instances
-- **File System Events**: Test handling of files changing during processing
-
----
-
-## 🎯 **IMMEDIATE NEXT STEPS (This Week)**
-
-1. **Fix test compilation errors** - Critical blocking issue
-2. **Add proper mocking for GooseAI** - Required for deterministic tests
-3. **Create test content files** - Tests need sample markdown content
-4. **Implement dependency injection** - Follow CLAUDE.md guidelines
-5. **Get test suite passing** - Foundation for all future development
-
----
-
-## 🔧 **TECHNICAL DEBT**
-
-### Code Quality Issues
-- [ ] **Import consistency**: Some files use relative imports instead of `@/` pattern
-- [ ] **Error messages**: Need descriptive error messages (follow CLAUDE.md guidelines)
-- [ ] **File size**: Ensure no files exceed 500 lines (currently compliant)
-- [ ] **Type safety**: Add stricter typing where `any` is used
-
-### Architecture Improvements
-- [ ] **Configuration management**: Need proper config system (following CLAUDE.md rules)
-- [ ] **Async error handling**: Improve promise error handling patterns
-- [ ] **Resource cleanup**: Ensure proper cleanup of file handles and processes
-
----
-
-## 📊 **SUCCESS METRICS**
-
-### Quality Gates
-- [ ] **Test Coverage**: 85%+ code coverage
-- [ ] **Type Safety**: 0 TypeScript compilation errors
-- [ ] **Code Quality**: All ESLint rules passing
-- [ ] **Performance**: Content processing under 30s per file
-- [ ] **Reliability**: 99%+ test success rate
-
-### Feature Completeness
-- [ ] **Core Features**: All 5 quality dimensions working reliably
-- [ ] **CLI Usability**: Intuitive command-line interface
-- [ ] **Error Handling**: Graceful failure with helpful messages
-- [ ] **Documentation**: Complete API and usage documentation
-
----
-
-## 🚀 **RELEASE READINESS CHECKLIST**
-
-### Pre-Release Requirements
-- [ ] All tests passing with high coverage
-- [ ] Dependency injection fully implemented
-- [ ] Error handling comprehensive and tested
-- [ ] CLI interface polished and documented
-- [ ] Package build working correctly
-- [ ] Documentation complete
-
-### Release Preparation
-- [ ] Version bumping strategy defined
-- [ ] Release notes template created
-- [ ] NPM publishing workflow tested
-- [ ] GitHub releases configured
-- [ ] Post-release support plan established
-
----
-
-## 🔄 **MAINTENANCE PLAN**
-
-### Regular Tasks
-- [ ] **Weekly**: Update dependencies and security patches
-- [ ] **Monthly**: Review and update AI prompts based on performance
-- [ ] **Quarterly**: Performance optimization and technical debt reduction
-
-### Monitoring
-- [ ] **Usage Analytics**: Track module adoption and usage patterns
-- [ ] **Error Monitoring**: Track and resolve common error patterns
-- [ ] **Performance Monitoring**: Monitor processing times and resource usage
-
----
-
-*This workplan will be updated regularly as tasks are completed and new requirements emerge.*
+*This workplan enhances Shakespeare's proven content discovery → rating → improvement workflow with intelligent cost optimization while preserving the quality and reliability that makes the system effective.*

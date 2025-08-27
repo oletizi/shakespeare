@@ -981,9 +981,338 @@ function normalizeConfig(rawConfig) {
 // src/index.ts
 import path3 from "path";
 import fs3 from "fs/promises";
+
+// src/utils/schema-validation.ts
+var SHAKESPEARE_CONFIG_V1_SCHEMA = {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.shakespeare.ai/config/v1.json",
+  "title": "Shakespeare Configuration V1 (Legacy)",
+  "description": "Legacy configuration format for Shakespeare AI content management system",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": {
+      "type": "number",
+      "enum": [1],
+      "description": "Configuration version"
+    },
+    "contentCollection": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["astro", "nextjs", "gatsby", "custom"],
+          "description": "Predefined content collection type"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "baseDir": { "type": "string" },
+            "include": { "type": "array", "items": { "type": "string" } },
+            "exclude": { "type": "array", "items": { "type": "string" } },
+            "framework": { "type": "string", "enum": ["astro", "nextjs", "gatsby", "custom"] }
+          },
+          "required": ["baseDir", "include"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "verbose": { "type": "boolean" },
+    "logLevel": { "type": "string", "enum": ["error", "warn", "info", "debug"] },
+    "models": {
+      "type": "object",
+      "properties": {
+        "review": { "type": "string" },
+        "improve": { "type": "string" },
+        "generate": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "review": { "type": "string" },
+        "improve": { "type": "string" },
+        "generate": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "workflows": {
+      "type": "object",
+      "properties": {
+        "discover": {
+          "type": "object",
+          "properties": {
+            "resetExisting": { "type": "boolean" },
+            "autoInit": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "batchSize": { "type": "number", "minimum": 1 },
+            "estimateCosts": { "type": "boolean" },
+            "retryFailures": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "improve": {
+          "type": "object",
+          "properties": {
+            "maxCount": { "type": "number", "minimum": 1 },
+            "requireReviewFirst": { "type": "boolean" },
+            "targetThreshold": { "type": "number", "minimum": 0, "maximum": 10 }
+          },
+          "additionalProperties": false
+        },
+        "complete": {
+          "type": "object",
+          "properties": {
+            "improveCount": { "type": "number", "minimum": 1 },
+            "runDiscovery": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "not": {
+    "anyOf": [
+      { "required": ["costOptimized"] },
+      { "required": ["qualityFirst"] },
+      { "required": ["taskModelOptions"] }
+    ]
+  }
+};
+var SHAKESPEARE_CONFIG_V2_SCHEMA = {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.shakespeare.ai/config/v2.json",
+  "title": "Shakespeare Configuration V2",
+  "description": "Current configuration format for Shakespeare AI content management system with model negotiation support",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "number", "enum": [2] },
+    "costOptimized": { "type": "boolean" },
+    "qualityFirst": { "type": "boolean" },
+    "model": { "type": "string" },
+    "provider": { "type": "string" },
+    "modelOptions": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "maxTokens": { "type": "number", "minimum": 1 },
+        "providerConfig": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "object",
+      "properties": {
+        "review": { "type": "string" },
+        "improve": { "type": "string" },
+        "generate": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "review": { "type": "string" },
+        "improve": { "type": "string" },
+        "generate": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "taskModelOptions": {
+      "type": "object",
+      "properties": {
+        "review": { "$ref": "#/properties/modelOptions" },
+        "improve": { "$ref": "#/properties/modelOptions" },
+        "generate": { "$ref": "#/properties/modelOptions" }
+      },
+      "additionalProperties": false
+    },
+    "verbose": { "type": "boolean" },
+    "logLevel": { "type": "string", "enum": ["error", "warn", "info", "debug"] },
+    "dbPath": { "type": "string" },
+    "contentCollection": {
+      "oneOf": [
+        { "type": "string", "enum": ["astro", "nextjs", "gatsby", "custom"] },
+        {
+          "type": "object",
+          "properties": {
+            "baseDir": { "type": "string" },
+            "include": { "type": "array", "items": { "type": "string" } },
+            "exclude": { "type": "array", "items": { "type": "string" } },
+            "framework": { "type": "string", "enum": ["astro", "nextjs", "gatsby", "custom"] }
+          },
+          "required": ["baseDir", "include"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "not": { "required": ["workflows"] }
+};
+var SchemaValidationError = class extends Error {
+  constructor(message, errors) {
+    super(message);
+    this.errors = errors;
+    this.name = "SchemaValidationError";
+  }
+};
+var SimpleJSONSchemaValidator = class {
+  validate(schema, data) {
+    const errors = [];
+    try {
+      this.validateObject(schema, data, "", errors);
+    } catch (error) {
+      errors.push({ message: `Validation error: ${error}` });
+    }
+    return {
+      valid: errors.length === 0,
+      errors: errors.length > 0 ? errors : void 0
+    };
+  }
+  validateObject(schema, data, path4, errors) {
+    if (schema.type === "object") {
+      if (typeof data !== "object" || data === null || Array.isArray(data)) {
+        errors.push({ path: path4, message: "Expected object" });
+        return;
+      }
+      if (schema.required) {
+        for (const prop of schema.required) {
+          if (!(prop in data)) {
+            errors.push({ path: `${path4}.${prop}`, message: `Missing required property: ${prop}` });
+          }
+        }
+      }
+      if (schema.properties) {
+        for (const [prop, propSchema] of Object.entries(schema.properties)) {
+          if (prop in data) {
+            this.validateAny(propSchema, data[prop], `${path4}.${prop}`, errors);
+          }
+        }
+      }
+      if (schema.additionalProperties === false) {
+        const allowedProps = schema.properties ? Object.keys(schema.properties) : [];
+        for (const prop of Object.keys(data)) {
+          if (!allowedProps.includes(prop)) {
+            errors.push({ path: `${path4}.${prop}`, message: `Additional property not allowed: ${prop}` });
+          }
+        }
+      }
+    }
+  }
+  validateAny(schema, data, path4, errors) {
+    if (schema.type) {
+      switch (schema.type) {
+        case "object":
+          this.validateObject(schema, data, path4, errors);
+          break;
+        case "string":
+          if (typeof data !== "string") {
+            errors.push({ path: path4, message: "Expected string" });
+          } else if (schema.enum && !schema.enum.includes(data)) {
+            errors.push({ path: path4, message: `Value must be one of: ${schema.enum.join(", ")}` });
+          }
+          break;
+        case "number":
+          if (typeof data !== "number") {
+            errors.push({ path: path4, message: "Expected number" });
+          } else {
+            if (schema.minimum !== void 0 && data < schema.minimum) {
+              errors.push({ path: path4, message: `Value must be >= ${schema.minimum}` });
+            }
+            if (schema.maximum !== void 0 && data > schema.maximum) {
+              errors.push({ path: path4, message: `Value must be <= ${schema.maximum}` });
+            }
+            if (schema.enum && !schema.enum.includes(data)) {
+              errors.push({ path: path4, message: `Value must be one of: ${schema.enum.join(", ")}` });
+            }
+          }
+          break;
+        case "boolean":
+          if (typeof data !== "boolean") {
+            errors.push({ path: path4, message: "Expected boolean" });
+          }
+          break;
+        case "array":
+          if (!Array.isArray(data)) {
+            errors.push({ path: path4, message: "Expected array" });
+          } else if (schema.items) {
+            data.forEach((item, index) => {
+              this.validateAny(schema.items, item, `${path4}[${index}]`, errors);
+            });
+          }
+          break;
+      }
+    } else if (schema.oneOf) {
+      const oneOfErrors = [];
+      let validCount = 0;
+      for (const subSchema of schema.oneOf) {
+        const subErrors = [];
+        try {
+          this.validateAny(subSchema, data, path4, subErrors);
+          if (subErrors.length === 0) {
+            validCount++;
+          }
+        } catch {
+        }
+        oneOfErrors.push(subErrors);
+      }
+      if (validCount === 0) {
+        errors.push({ path: path4, message: "Data does not match any of the expected schemas" });
+      } else if (validCount > 1) {
+        errors.push({ path: path4, message: "Data matches multiple schemas (should match exactly one)" });
+      }
+    }
+  }
+};
+function validateConfigSchema(config, validator = new SimpleJSONSchemaValidator()) {
+  const version = config.version || (config.workflows || config.models && !config.taskModelOptions ? 1 : 2);
+  const schema = version === 1 ? SHAKESPEARE_CONFIG_V1_SCHEMA : SHAKESPEARE_CONFIG_V2_SCHEMA;
+  const result = validator.validate(schema, config);
+  return {
+    ...result,
+    detectedVersion: version
+  };
+}
+function validateConfigSchemaStrict(config, validator) {
+  const result = validateConfigSchema(config, validator);
+  if (!result.valid) {
+    const errorMessages = result.errors?.map((e) => `${e.path}: ${e.message}`).join(", ") || "Unknown validation errors";
+    throw new SchemaValidationError(`Configuration validation failed: ${errorMessages}`, result.errors || []);
+  }
+}
+
+// src/index.ts
 var Shakespeare = class _Shakespeare {
+  scanner;
+  _db;
+  ai;
+  rootDir;
+  dbPath;
+  logger;
+  verbose = false;
+  /** Configuration used to create this instance */
+  config;
+  /** Model options being used for AI operations */
+  modelOptions;
+  /**
+   * Get database instance for testing purposes
+   * @internal
+   */
+  get db() {
+    return this._db;
+  }
   constructor(rootDir = process.cwd(), dbPath, options = {}) {
-    this.verbose = false;
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
     this.logger = new ShakespeareLogger();
@@ -1017,13 +1346,6 @@ var Shakespeare = class _Shakespeare {
     }
     const dbDir = path3.dirname(this.dbPath);
     fs3.mkdir(dbDir, { recursive: true }).catch((err) => this.logger.error(`Failed to create database directory: ${err}`));
-  }
-  /**
-   * Get database instance for testing purposes
-   * @internal
-   */
-  get db() {
-    return this._db;
   }
   /**
    * Initialize the system
@@ -1106,7 +1428,7 @@ var Shakespeare = class _Shakespeare {
       this.logger.warn("Database not loaded. Call initialize() first.");
     }
     const database = this._db.getData();
-    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path5, _]) => path5);
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path4, _]) => path4);
   }
   /**
    * Get detailed content objects that need review
@@ -1131,16 +1453,16 @@ var Shakespeare = class _Shakespeare {
   /**
    * Review/score a specific content file
    */
-  async reviewContent(path5) {
+  async reviewContent(path4) {
     const database = this._db.getData();
-    const entry = database.entries[path5];
+    const entry = database.entries[path4];
     if (!entry) {
-      throw new Error(`Content not found: ${path5}`);
+      throw new Error(`Content not found: ${path4}`);
     }
     if (entry.status !== "needs_review") {
-      throw new Error(`Content has already been reviewed: ${path5}`);
+      throw new Error(`Content has already been reviewed: ${path4}`);
     }
-    const content = await this.scanner.readContent(path5);
+    const content = await this.scanner.readContent(path4);
     const analysis = await this.ai.scoreContent(content);
     const updatedEntry = {
       ...entry,
@@ -1153,7 +1475,7 @@ var Shakespeare = class _Shakespeare {
         improvements: []
       }]
     };
-    await this._db.updateEntry(path5, () => updatedEntry);
+    await this._db.updateEntry(path4, () => updatedEntry);
     await this._db.save();
   }
   /**
@@ -1163,13 +1485,13 @@ var Shakespeare = class _Shakespeare {
     const database = this._db.getData();
     let worstScore = Infinity;
     let worstPath = null;
-    for (const [path5, entry] of Object.entries(database.entries)) {
+    for (const [path4, entry] of Object.entries(database.entries)) {
       if (entry.status === "meets_targets" || entry.status === "needs_review") continue;
       const avgScore = Object.values(entry.currentScores).reduce((a, b) => a + b, 0) / Object.keys(entry.currentScores).length;
       if (avgScore === 0) continue;
       if (avgScore < worstScore) {
         worstScore = avgScore;
-        worstPath = path5;
+        worstPath = path4;
       }
     }
     return worstPath;
@@ -1177,13 +1499,13 @@ var Shakespeare = class _Shakespeare {
   /**
    * Improve content at the specified path
    */
-  async improveContent(path5) {
+  async improveContent(path4) {
     const database = this._db.getData();
-    const entry = database.entries[path5];
+    const entry = database.entries[path4];
     if (!entry) {
-      throw new Error(`No content found at path: ${path5}`);
+      throw new Error(`No content found at path: ${path4}`);
     }
-    const content = await this.scanner.readContent(path5);
+    const content = await this.scanner.readContent(path4);
     const analysis = await this.ai.scoreContent(content);
     let improvedContent;
     try {
@@ -1209,16 +1531,16 @@ var Shakespeare = class _Shakespeare {
     }
     const newAnalysis = await this.ai.scoreContent(improvedContent);
     try {
-      await fs3.writeFile(path5, improvedContent, "utf-8");
-      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${path5}`);
+      await fs3.writeFile(path4, improvedContent, "utf-8");
+      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${path4}`);
     } catch (writeError) {
       const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
       this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
       throw writeError;
     }
-    await this._db.updateEntry(path5, (entry2) => {
+    await this._db.updateEntry(path4, (entry2) => {
       if (!entry2) {
-        throw new Error(`Entry not found for path: ${path5}`);
+        throw new Error(`Entry not found for path: ${path4}`);
       }
       return {
         ...entry2,
@@ -1354,7 +1676,7 @@ var Shakespeare = class _Shakespeare {
       this.log(`     ${status}: ${count}`, "always");
     });
     this.log("", "always");
-    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path5]) => path5);
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
     if (contentNeedingReview.length === 0) {
       this.log("\u2705 No content needs review", "always");
       return {
@@ -1571,32 +1893,32 @@ var Shakespeare = class _Shakespeare {
    * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath) {
-    const { join, dirname, resolve } = await import("path");
-    const { existsSync, readFileSync } = await import("fs");
+    const { join: join2, dirname: dirname2, resolve } = await import("path");
+    const { existsSync: existsSync2, readFileSync: readFileSync2 } = await import("fs");
     const cwd = process.cwd();
     const possiblePaths = [
       configPath,
-      join(cwd, ".shakespeare", "config.json"),
-      join(cwd, "shakespeare.config.js"),
-      join(cwd, "shakespeare.config.mjs"),
-      join(cwd, "shakespeare.config.json"),
-      join(cwd, ".shakespeare.json")
+      join2(cwd, ".shakespeare", "config.json"),
+      join2(cwd, "shakespeare.config.js"),
+      join2(cwd, "shakespeare.config.mjs"),
+      join2(cwd, "shakespeare.config.json"),
+      join2(cwd, ".shakespeare.json")
     ].filter(Boolean);
     for (const configFile of possiblePaths) {
       try {
-        if (existsSync(configFile)) {
+        if (existsSync2(configFile)) {
           let config;
           if (configFile.endsWith(".json")) {
-            config = JSON.parse(readFileSync(configFile, "utf-8"));
+            config = JSON.parse(readFileSync2(configFile, "utf-8"));
           } else {
             const configModule = await import(configFile);
             config = configModule.default || configModule;
           }
           try {
             const normalizedConfig = normalizeConfig(config);
-            let configDir = dirname(resolve(configFile));
+            let configDir = dirname2(resolve(configFile));
             if (configFile.includes(".shakespeare")) {
-              configDir = dirname(configDir);
+              configDir = dirname2(configDir);
             }
             if (normalizedConfig.dbPath) {
               normalizedConfig.dbPath = resolve(configDir, normalizedConfig.dbPath);
@@ -1619,9 +1941,9 @@ var Shakespeare = class _Shakespeare {
       }
     }
     try {
-      const dbPath = join(cwd, ".shakespeare", "content-db.json");
-      if (existsSync(dbPath)) {
-        const db = JSON.parse(readFileSync(dbPath, "utf-8"));
+      const dbPath = join2(cwd, ".shakespeare", "content-db.json");
+      if (existsSync2(dbPath)) {
+        const db = JSON.parse(readFileSync2(dbPath, "utf-8"));
         if (db.config) {
           try {
             const normalizedConfig = normalizeConfig(db.config);
@@ -1710,15 +2032,15 @@ var Shakespeare = class _Shakespeare {
 };
 async function detectProjectType(rootDir) {
   try {
-    const { existsSync } = await import("fs");
-    const { join } = await import("path");
-    if (existsSync(join(rootDir, "astro.config.mjs")) || existsSync(join(rootDir, "astro.config.js")) || existsSync(join(rootDir, "src/content"))) {
+    const { existsSync: existsSync2 } = await import("fs");
+    const { join: join2 } = await import("path");
+    if (existsSync2(join2(rootDir, "astro.config.mjs")) || existsSync2(join2(rootDir, "astro.config.js")) || existsSync2(join2(rootDir, "src/content"))) {
       return "astro";
     }
-    if (existsSync(join(rootDir, "next.config.js")) || existsSync(join(rootDir, "next.config.mjs"))) {
+    if (existsSync2(join2(rootDir, "next.config.js")) || existsSync2(join2(rootDir, "next.config.mjs"))) {
       return "nextjs";
     }
-    if (existsSync(join(rootDir, "gatsby-config.js")) || existsSync(join(rootDir, "gatsby-config.ts"))) {
+    if (existsSync2(join2(rootDir, "gatsby-config.js")) || existsSync2(join2(rootDir, "gatsby-config.ts"))) {
       return "gatsby";
     }
     return "custom";
@@ -1749,15 +2071,418 @@ function getOptimizedModelOptions(config) {
   return void 0;
 }
 
-// src/scripts/updateContentIndex.ts
-import path4 from "path";
-async function main() {
-  const contentDir = process.env.CONTENT_DIR || path4.join(process.cwd(), "content");
-  const dbPath = process.env.DB_PATH || path4.join(process.cwd(), ".shakespeare", "content-db.json");
-  const shakespeare = new Shakespeare(contentDir, dbPath);
-  await shakespeare.initialize();
-  await shakespeare.updateContentIndex();
-  console.log("Content index updated successfully");
+// src/utils/config-cli.ts
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from "fs";
+import { join } from "path";
+var CONFIG_TEMPLATES = {
+  astro: {
+    "$schema": "https://schemas.shakespeare.ai/config/v2.json",
+    "version": 2,
+    "contentCollection": "astro",
+    "verbose": true,
+    "logLevel": "info",
+    "models": {
+      "review": "gemini-1.5-flash-8b",
+      "improve": "claude-3-5-sonnet",
+      "generate": "claude-3-5-sonnet"
+    },
+    "providers": {
+      "review": "google",
+      "improve": "anthropic",
+      "generate": "anthropic"
+    }
+  },
+  nextjs: {
+    "$schema": "https://schemas.shakespeare.ai/config/v2.json",
+    "version": 2,
+    "contentCollection": "nextjs",
+    "verbose": true,
+    "logLevel": "info",
+    "models": {
+      "review": "gemini-1.5-flash-8b",
+      "improve": "claude-3-5-sonnet",
+      "generate": "claude-3-5-sonnet"
+    },
+    "providers": {
+      "review": "google",
+      "improve": "anthropic",
+      "generate": "anthropic"
+    }
+  },
+  gatsby: {
+    "$schema": "https://schemas.shakespeare.ai/config/v2.json",
+    "version": 2,
+    "contentCollection": "gatsby",
+    "verbose": true,
+    "logLevel": "info",
+    "models": {
+      "review": "gemini-1.5-flash-8b",
+      "improve": "claude-3-5-sonnet",
+      "generate": "claude-3-5-sonnet"
+    },
+    "providers": {
+      "review": "google",
+      "improve": "anthropic",
+      "generate": "anthropic"
+    }
+  },
+  costOptimized: {
+    "$schema": "https://schemas.shakespeare.ai/config/v2.json",
+    "version": 2,
+    "costOptimized": true,
+    "verbose": false,
+    "logLevel": "info"
+  },
+  qualityFirst: {
+    "$schema": "https://schemas.shakespeare.ai/config/v2.json",
+    "version": 2,
+    "qualityFirst": true,
+    "verbose": true,
+    "logLevel": "debug"
+  },
+  minimal: {
+    "$schema": "https://schemas.shakespeare.ai/config/v2.json",
+    "version": 2,
+    "verbose": false
+  }
+};
+async function initConfig(template = "astro", customPath) {
+  const configDir = join(process.cwd(), ".shakespeare");
+  const configPath = customPath || join(configDir, "config.json");
+  if (existsSync(configPath)) {
+    console.log(`\u274C Configuration already exists at: ${configPath}`);
+    console.log("   Use --force to overwrite or choose a different path");
+    return;
+  }
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+  }
+  const config = CONFIG_TEMPLATES[template];
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  console.log(`\u2705 Created Shakespeare configuration at: ${configPath}`);
+  console.log(`\u{1F4CB} Template: ${template}`);
+  console.log("");
+  console.log("\u{1F4DD} Next steps:");
+  console.log("   1. Edit the config file to customize your setup");
+  console.log("   2. Run: npx shakespeare discover");
+  console.log("   3. Run: npx shakespeare review");
 }
-main().catch(console.error);
-//# sourceMappingURL=updateContentIndex.js.map
+async function initConfigForce(template = "astro", customPath) {
+  const configDir = join(process.cwd(), ".shakespeare");
+  const configPath = customPath || join(configDir, "config.json");
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+  }
+  const config = CONFIG_TEMPLATES[template];
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  console.log(`\u2705 Created Shakespeare configuration at: ${configPath}`);
+  console.log(`\u{1F4CB} Template: ${template} (overwrote existing)`);
+  console.log("");
+  console.log("\u{1F4DD} Next steps:");
+  console.log("   1. Edit the config file to customize your setup");
+  console.log("   2. Run: npx shakespeare discover");
+  console.log("   3. Run: npx shakespeare review");
+}
+async function validateConfig2() {
+  const configPaths = [
+    join(process.cwd(), ".shakespeare", "config.json"),
+    join(process.cwd(), "shakespeare.config.json"),
+    join(process.cwd(), ".shakespeare.json")
+  ];
+  let configFound = false;
+  for (const configPath of configPaths) {
+    if (existsSync(configPath)) {
+      configFound = true;
+      try {
+        const configContent = readFileSync(configPath, "utf-8");
+        const config = JSON.parse(configContent);
+        console.log(`\u{1F4CB} Validating config: ${configPath}`);
+        validateConfigSchemaStrict(config);
+        console.log("\u2705 Configuration is valid!");
+        console.log(`   Version: ${config.version || "auto-detected"}`);
+        console.log(`   Content Collection: ${config.contentCollection || "auto-detected"}`);
+        if (config.models) {
+          console.log("   Task-specific models:");
+          for (const [task, model] of Object.entries(config.models)) {
+            console.log(`     ${task}: ${model}`);
+          }
+        }
+        if (config.costOptimized) {
+          console.log("   Optimization: Cost-optimized (cheap, fast models)");
+        } else if (config.qualityFirst) {
+          console.log("   Optimization: Quality-first (expensive, best models)");
+        }
+        console.log("");
+      } catch (error) {
+        if (error instanceof SchemaValidationError) {
+          console.log(`\u274C Configuration validation failed:`);
+          console.log(`   File: ${configPath}`);
+          console.log(`   Errors:`);
+          error.errors.forEach((err) => {
+            console.log(`     \u2022 ${err.path || "root"}: ${err.message}`);
+          });
+        } else if (error instanceof SyntaxError) {
+          console.log(`\u274C JSON syntax error in: ${configPath}`);
+          console.log(`   ${error.message}`);
+        } else {
+          console.log(`\u274C Error reading config: ${configPath}`);
+          console.log(`   ${error}`);
+        }
+        process.exit(1);
+      }
+    }
+  }
+  if (!configFound) {
+    console.log("\u274C No configuration file found");
+    console.log("   Run: npx shakespeare config init");
+    process.exit(1);
+  }
+}
+async function showConfig() {
+  const configPaths = [
+    join(process.cwd(), ".shakespeare", "config.json"),
+    join(process.cwd(), "shakespeare.config.json"),
+    join(process.cwd(), ".shakespeare.json")
+  ];
+  let configFound = false;
+  for (const configPath of configPaths) {
+    if (existsSync(configPath)) {
+      configFound = true;
+      try {
+        const configContent = readFileSync(configPath, "utf-8");
+        const config = JSON.parse(configContent);
+        console.log(`\u{1F4CB} Configuration: ${configPath}`);
+        console.log("");
+        console.log(JSON.stringify(config, null, 2));
+        console.log("");
+        console.log("\u{1F4CA} Detected Properties:");
+        console.log(`   Version: ${config.version || "auto-detected"}`);
+        console.log(`   Content Collection: ${config.contentCollection || "auto-detected"}`);
+        console.log(`   Verbose: ${config.verbose || false}`);
+        console.log(`   Log Level: ${config.logLevel || "info"}`);
+        if (config.models) {
+          console.log("   Task Models:");
+          for (const [task, model] of Object.entries(config.models)) {
+            const provider = config.providers?.[task] || "default";
+            console.log(`     ${task}: ${model} (${provider})`);
+          }
+        }
+        if (config.costOptimized) {
+          console.log("   \u{1F680} Cost-optimized setup (fast, cheap models)");
+        } else if (config.qualityFirst) {
+          console.log("   \u2B50 Quality-first setup (best models, higher cost)");
+        }
+      } catch (error) {
+        console.log(`\u274C Error reading config: ${configPath}`);
+        console.log(`   ${error}`);
+        process.exit(1);
+      }
+    }
+  }
+  if (!configFound) {
+    console.log("\u274C No configuration file found");
+    console.log("   Run: npx shakespeare config init");
+    process.exit(1);
+  }
+}
+function listTemplates() {
+  console.log("\u{1F4CB} Available Configuration Templates:\n");
+  console.log("\u{1F3AF} Framework-Specific:");
+  console.log("   astro      - Astro projects (src/content/)");
+  console.log("   nextjs     - Next.js projects (content/)");
+  console.log("   gatsby     - Gatsby projects (content/)");
+  console.log("");
+  console.log("\u26A1 Optimization Presets:");
+  console.log("   costOptimized  - Fast, cheap models (Google Gemini)");
+  console.log("   qualityFirst   - Best models, higher cost (Claude Sonnet)");
+  console.log("");
+  console.log("\u{1F527} Other:");
+  console.log("   minimal    - Minimal configuration");
+  console.log("");
+  console.log("\u{1F4A1} Usage:");
+  console.log("   npx shakespeare config init astro");
+  console.log("   npx shakespeare config init costOptimized");
+}
+function showConfigHelp() {
+  console.log(`
+\u{1F3AD} Shakespeare Configuration Commands
+
+USAGE
+  npx shakespeare config <subcommand> [options]
+
+SUBCOMMANDS
+  init [template]     Initialize new configuration
+  validate           Validate current configuration  
+  show              Show current configuration
+  templates         List available templates
+  help              Show this help
+
+TEMPLATES
+  astro, nextjs, gatsby, costOptimized, qualityFirst, minimal
+
+OPTIONS
+  --force           Overwrite existing configuration
+  --path <path>     Custom configuration file path
+
+EXAMPLES
+  npx shakespeare config init astro        # Create Astro config
+  npx shakespeare config init --force      # Overwrite existing config
+  npx shakespeare config validate         # Check config validity
+  npx shakespeare config show             # Display current config
+  npx shakespeare config templates        # List all templates
+
+For more information, visit: https://github.com/oletizi/shakespeare
+  `);
+}
+
+// src/cli.ts
+function showHelp() {
+  console.log(`
+\u{1F3AD} Shakespeare CLI - AI-powered content management
+
+USAGE
+  npx shakespeare <command>
+
+COMMANDS
+  discover     Discover and index content files
+  review       Review all content that needs analysis
+  improve      Improve worst-scoring content
+  status       Show content health status dashboard
+  workflow     Run complete workflow (discover \u2192 review \u2192 improve)
+  config       Configuration management (init, validate, show)
+  help         Show this help message
+
+CONFIGURATION
+  Shakespeare automatically loads configuration from:
+  1. .shakespeare/config.json
+  2. shakespeare.config.js/mjs/json
+  3. .shakespeare.json
+  4. .shakespeare/content-db.json (legacy workflow config)
+
+EXAMPLES
+  npx shakespeare discover              # Find and index all content
+  npx shakespeare review                # AI review of unreviewed content
+  npx shakespeare improve               # Improve lowest-scoring content
+  npx shakespeare status                # Show content health dashboard
+  npx shakespeare workflow              # Complete end-to-end workflow
+  npx shakespeare config init astro     # Initialize config for Astro
+  npx shakespeare config validate       # Validate current config
+
+For more information, visit: https://github.com/oletizi/shakespeare
+  `);
+}
+async function main() {
+  const command = process.argv[2];
+  if (!command || command === "help" || command === "--help" || command === "-h") {
+    showHelp();
+    return;
+  }
+  try {
+    console.log("\u{1F3AD} Shakespeare CLI\n");
+    if (command === "config") {
+      const subcommand = process.argv[3];
+      const options = process.argv.slice(4);
+      switch (subcommand) {
+        case "init": {
+          const template = options[0] || "astro";
+          const forceIndex = options.indexOf("--force");
+          const pathIndex = options.indexOf("--path");
+          const customPath = pathIndex !== -1 ? options[pathIndex + 1] : void 0;
+          if (!CONFIG_TEMPLATES[template]) {
+            console.log(`\u274C Unknown template: ${template}`);
+            console.log('Run "npx shakespeare config templates" to see available templates.');
+            process.exit(1);
+          }
+          if (forceIndex !== -1) {
+            await initConfigForce(template, customPath);
+          } else {
+            await initConfig(template, customPath);
+          }
+          break;
+        }
+        case "validate":
+          await validateConfig2();
+          break;
+        case "show":
+          await showConfig();
+          break;
+        case "templates":
+          listTemplates();
+          break;
+        case "help":
+        case void 0:
+          showConfigHelp();
+          break;
+        default:
+          console.error(`\u274C Unknown config subcommand: ${subcommand}`);
+          console.log('Run "npx shakespeare config help" for usage information.');
+          process.exit(1);
+      }
+      return;
+    }
+    const shakespeare = await Shakespeare.fromConfig();
+    switch (command) {
+      case "discover":
+        console.log("\u{1F4C2} Running content discovery...");
+        await shakespeare.discoverAndReport();
+        break;
+      case "review":
+        console.log("\u{1F4CA} Running content review...");
+        await shakespeare.reviewAll();
+        break;
+      case "improve":
+        console.log("\u{1F680} Running content improvement...");
+        await shakespeare.improveWorst();
+        break;
+      case "status":
+        console.log("\u{1F4CA} Content Health Status\n");
+        const status = await shakespeare.getStatus();
+        console.log("\u{1F4C8} Overview:");
+        console.log(`   \u{1F4C2} Total Files: ${status.totalFiles}`);
+        console.log(`   \u23F3 Needs Review: ${status.needsReview}`);
+        console.log(`   \u26A0\uFE0F  Needs Improvement: ${status.needsImprovement}`);
+        console.log(`   \u2705 Meets Targets: ${status.meetsTargets}`);
+        console.log("");
+        if (status.averageScore > 0) {
+          console.log("\u{1F4CA} Content Quality:");
+          console.log(`   \u{1F4C8} Average Score: ${status.averageScore.toFixed(1)}/10`);
+          if (status.worstScoring) {
+            console.log(`   \u{1F4C9} Lowest Scoring: ${status.worstScoring}`);
+          }
+          console.log("");
+        }
+        if (status.needsReview > 0) {
+          console.log("\u{1F504} Recommended Next Steps:");
+          console.log(`   1. Run: npx shakespeare review    # Review ${status.needsReview} files`);
+        }
+        if (status.needsImprovement > 0) {
+          console.log(`   ${status.needsReview > 0 ? "2" : "1"}. Run: npx shakespeare improve   # Improve ${status.needsImprovement} files`);
+        }
+        if (status.needsReview === 0 && status.needsImprovement === 0) {
+          console.log("\u{1F389} All content is up to date!");
+        }
+        break;
+      case "workflow":
+        console.log("\u{1F504} Running complete workflow...");
+        await shakespeare.runFullWorkflow();
+        break;
+      default:
+        console.error(`\u274C Unknown command: ${command}`);
+        console.log('Run "npx shakespeare help" for usage information.');
+        process.exit(1);
+    }
+    console.log("\n\u2705 Command completed successfully!");
+  } catch (error) {
+    console.error(`
+\u274C Error: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
+}
+var isMainModule = process.argv[1]?.includes("cli.js") || process.argv[1]?.includes("shakespeare");
+if (isMainModule) {
+  main().catch(console.error);
+}
+export {
+  main as runCLI
+};
+//# sourceMappingURL=cli.js.map

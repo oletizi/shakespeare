@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.shakespeare.ai/config/shakespeare-config.json",
+  "title": "Shakespeare Configuration",
+  "description": "Configuration schema for Shakespeare AI content management system (supports both V1 and V2 formats)",
+  "oneOf": [
+    {
+      "$ref": "https://schemas.shakespeare.ai/config/v1.json"
+    },
+    {
+      "$ref": "https://schemas.shakespeare.ai/config/v2.json"
+    }
+  ]
+}

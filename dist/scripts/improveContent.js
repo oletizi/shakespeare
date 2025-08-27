@@ -197,19 +197,220 @@ var DEFAULT_TARGET_SCORES = {
 
 // src/utils/goose.ts
 import { spawn } from "child_process";
+
+// src/utils/logger.ts
+import winston from "winston";
+var ShakespeareLogger = class {
+  logger;
+  verboseEnabled = false;
+  constructor() {
+    this.logger = winston.createLogger({
+      level: "info",
+      format: winston.format.combine(
+        winston.format.timestamp({ format: "HH:mm:ss.SSS" }),
+        winston.format.errors({ stack: true }),
+        winston.format.json()
+      ),
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.printf(({ timestamp, level, message, ...meta }) => {
+              const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
+              return `[${timestamp}] ${level}: ${message}${metaStr}`;
+            })
+          )
+        })
+      ]
+    });
+  }
+  /**
+   * Enable or disable verbose logging
+   */
+  setVerbose(enabled) {
+    this.verboseEnabled = enabled;
+    this.logger.level = enabled ? "debug" : "info";
+  }
+  /**
+   * Set explicit log level
+   */
+  setLevel(level) {
+    this.logger.level = level;
+    this.verboseEnabled = level === "debug";
+  }
+  /**
+   * Check if verbose mode is enabled
+   */
+  isVerbose() {
+    return this.verboseEnabled;
+  }
+  /**
+   * Always log - shown regardless of verbose setting
+   */
+  always(message, meta) {
+    this.logger.info(message, meta);
+  }
+  /**
+   * Verbose level logging - only shown when verbose is enabled
+   */
+  verbose(message, meta) {
+    if (this.verboseEnabled) {
+      this.logger.info(`\u{1F527} ${message}`, meta);
+    }
+  }
+  /**
+   * Debug level logging - detailed information for debugging
+   */
+  debug(message, meta) {
+    if (this.verboseEnabled) {
+      this.logger.debug(`\u{1F41B} ${message}`, meta);
+    }
+  }
+  /**
+   * Info level logging - general information
+   */
+  info(message, meta) {
+    this.logger.info(message, meta);
+  }
+  /**
+   * Warning level logging
+   */
+  warn(message, meta) {
+    this.logger.warn(`\u26A0\uFE0F  ${message}`, meta);
+  }
+  /**
+   * Error level logging
+   */
+  error(message, meta) {
+    this.logger.error(`\u274C ${message}`, meta);
+  }
+  /**
+   * Log command execution with elided content
+   */
+  logCommand(command, args, options) {
+    if (this.verboseEnabled) {
+      const processedArgs = args.map((arg) => {
+        if (arg.length > 100 && !arg.startsWith("--") && !arg.includes("/") && !arg.includes("=")) {
+          return `[CONTENT: ${arg.length} chars]`;
+        }
+        return arg;
+      });
+      const meta = {
+        command,
+        args: processedArgs,
+        ...options?.contentLength && { contentLength: options.contentLength }
+      };
+      this.logger.debug(`\u{1F680} Executing command: ${command}`, meta);
+    }
+  }
+  /**
+   * Log timing information
+   */
+  logTiming(operation, duration, meta) {
+    if (this.verboseEnabled) {
+      this.logger.debug(`\u23F1\uFE0F  ${operation} completed in ${duration}ms`, { duration, ...meta });
+    }
+  }
+  /**
+   * Log file processing information
+   */
+  logFileProcessing(filePath, operation, meta) {
+    if (this.verboseEnabled) {
+      const fileName = filePath.split("/").pop() || filePath;
+      this.logger.debug(`\u{1F4C4} ${operation}: ${fileName}`, { filePath, operation, ...meta });
+    }
+  }
+  /**
+   * Log configuration details
+   */
+  logConfig(config) {
+    if (this.verboseEnabled) {
+      this.logger.info("\u{1F527} Configuration Details:", config);
+    }
+  }
+  /**
+   * Log statistics
+   */
+  logStats(stats) {
+    if (this.verboseEnabled) {
+      this.logger.info("\u{1F4CA} Statistics:", stats);
+    }
+  }
+  /**
+   * Create a child logger with additional context
+   */
+  child(context) {
+    return this.logger.child(context);
+  }
+};
+
+// src/utils/goose.ts
+var MODEL_COSTS = {
+  // OpenAI pricing (per 1M tokens)
+  "openai/gpt-4o-mini": { input: 15e-5, output: 6e-4 },
+  "openai/gpt-4o": { input: 5e-3, output: 0.015 },
+  // Anthropic pricing (per 1M tokens)  
+  "anthropic/claude-3-5-haiku": { input: 8e-4, output: 4e-3 },
+  "anthropic/claude-3-5-sonnet": { input: 3e-3, output: 0.015 },
+  // Google pricing (per 1M tokens)
+  "google/gemini-1.5-flash": { input: 75e-6, output: 3e-4 },
+  "google/gemini-1.5-pro": { input: 125e-5, output: 5e-3 },
+  // Groq pricing (per 1M tokens) - very fast inference
+  "groq/llama-3.1-70b": { input: 59e-5, output: 79e-5 },
+  "groq/llama-3.1-8b": { input: 5e-5, output: 8e-5 },
+  // DeepInfra pricing (per 1M tokens) - cost effective
+  "deepinfra/llama-3.1-70b": { input: 52e-5, output: 75e-5 },
+  "deepinfra/deepseek-chat": { input: 14e-5, output: 28e-5 }
+};
+var DEFAULT_MODELS_BY_TASK = {
+  // Light tasks - use cheapest models
+  scoring: { provider: "google", model: "gemini-1.5-flash" },
+  analysis: { provider: "groq", model: "llama-3.1-8b" },
+  // Medium tasks - balance cost and quality
+  improvement: { provider: "anthropic", model: "claude-3-5-haiku" },
+  // Heavy tasks - use best models
+  generation: { provider: "anthropic", model: "claude-3-5-sonnet" }
+};
 var GooseAI = class {
   gooseCommand;
   cwd;
-  constructor(cwd = process.cwd()) {
+  defaultOptions;
+  logger;
+  constructor(cwd = process.cwd(), defaultOptions = {}, logger) {
     this.gooseCommand = "goose";
     this.cwd = cwd;
+    this.defaultOptions = defaultOptions;
+    this.logger = logger || new ShakespeareLogger();
   }
   /**
-   * Send a prompt to Goose and get the response using headless mode
+   * Set the logger instance for command logging
+   */
+  setLogger(logger) {
+    this.logger = logger;
+  }
+  /**
+   * Send a prompt to Goose and get the response using headless mode (backward compatibility)
    */
   async prompt(prompt) {
+    const response = await this.promptWithOptions(prompt);
+    return response.content;
+  }
+  /**
+   * Enhanced prompt method with model selection and cost tracking
+   */
+  async promptWithOptions(prompt, options) {
+    const startTime = Date.now();
+    const finalOptions = { ...this.defaultOptions, ...options };
+    const args = ["run", "--no-session", "--quiet"];
+    if (finalOptions.provider) {
+      args.push("--provider", finalOptions.provider);
+    }
+    if (finalOptions.model) {
+      args.push("--model", finalOptions.model);
+    }
+    args.push("--text", prompt);
+    this.logger.logCommand(this.gooseCommand, args, { contentLength: prompt.length });
     return new Promise((resolve, reject) => {
-      const args = ["run", "--no-session", "--quiet", "--text", prompt];
       const goose = spawn(this.gooseCommand, args, {
         cwd: this.cwd,
         stdio: ["pipe", "pipe", "pipe"]
@@ -223,13 +424,93 @@ var GooseAI = class {
         error += data.toString();
       });
       goose.on("close", (code) => {
+        const duration = Date.now() - startTime;
         if (code !== 0) {
-          reject(new Error(`Goose failed with code ${code}: ${error}`));
+          this.logger.logTiming("Goose command (failed)", duration, {
+            exitCode: code,
+            promptLength: prompt.length,
+            provider: finalOptions.provider,
+            model: finalOptions.model
+          });
+          const errorMsg = [
+            `Goose failed with exit code ${code}`,
+            error ? `STDERR: ${error}` : "STDERR: (empty)",
+            output ? `STDOUT: ${output.substring(0, 200)}...` : "STDOUT: (empty)",
+            `Command: ${this.gooseCommand} ${args.join(" ")}`,
+            `Prompt length: ${prompt.length} chars`
+          ].join("\n");
+          reject(new Error(errorMsg));
         } else {
-          resolve(output.trim());
+          const content = output.trim();
+          const costInfo = this.calculateCostInfo(
+            prompt,
+            content,
+            finalOptions,
+            startTime
+          );
+          this.logger.logTiming("Goose command (success)", duration, {
+            promptLength: prompt.length,
+            responseLength: content.length,
+            provider: finalOptions.provider,
+            model: finalOptions.model,
+            estimatedCost: costInfo.totalCost
+          });
+          resolve({
+            content,
+            costInfo
+          });
         }
       });
     });
+  }
+  /**
+   * Estimate cost before making a request
+   */
+  async estimateCost(prompt, options) {
+    const finalOptions = { ...this.defaultOptions, ...options };
+    const inputTokens = this.estimateTokens(prompt);
+    const outputTokens = Math.min(inputTokens * 2, 4e3);
+    return this.calculateCostFromTokens(inputTokens, outputTokens, finalOptions);
+  }
+  /**
+   * Calculate cost information for a completed operation
+   */
+  calculateCostInfo(prompt, response, options, startTime) {
+    const inputTokens = this.estimateTokens(prompt);
+    const outputTokens = this.estimateTokens(response);
+    const totalCost = this.calculateCostFromTokens(inputTokens, outputTokens, options);
+    return {
+      provider: options.provider || "default",
+      model: options.model || "default",
+      inputTokens,
+      outputTokens,
+      totalCost,
+      timestamp: new Date(startTime).toISOString()
+    };
+  }
+  /**
+   * Calculate cost from token counts and model options
+   */
+  calculateCostFromTokens(inputTokens, outputTokens, options) {
+    const modelKey = `${options.provider || "openai"}/${options.model || "gpt-4o-mini"}`;
+    const pricing = MODEL_COSTS[modelKey];
+    if (!pricing) {
+      const defaultPricing = MODEL_COSTS["openai/gpt-4o-mini"];
+      return (inputTokens * defaultPricing.input + outputTokens * defaultPricing.output) / 1e6;
+    }
+    return (inputTokens * pricing.input + outputTokens * pricing.output) / 1e6;
+  }
+  /**
+   * Estimate token count for text (rough approximation)
+   */
+  estimateTokens(text) {
+    return Math.ceil(text.length / 4);
+  }
+  /**
+   * Get optimal model for a specific task type
+   */
+  getOptimalModelForTask(taskType) {
+    return DEFAULT_MODELS_BY_TASK[taskType];
   }
 };
 
@@ -428,37 +709,327 @@ var AIScorer = class {
    * Generate improved content based on analysis
    */
   async improveContent(content, analysis) {
+    const response = await this.improveContentWithCosts(content, analysis);
+    return response.content;
+  }
+  /**
+   * Enhanced scoring with cost tracking and model selection
+   */
+  async scoreContentWithCosts(content, strategies) {
+    const analysis = {
+      scores: {},
+      analysis: {}
+    };
+    const costBreakdown = {};
+    let totalCost = 0;
+    const defaultStrategies = strategies || [
+      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
+      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+    ];
+    for (const strategy of defaultStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
+      const prompt = promptTemplate.replace("{content}", content);
+      try {
+        const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
+        analysis.scores[strategy.dimension] = result.response.score;
+        analysis.analysis[strategy.dimension] = {
+          reasoning: result.response.reasoning,
+          suggestions: result.response.suggestions || []
+        };
+        costBreakdown[strategy.dimension] = result.costInfo;
+        totalCost += result.costInfo.totalCost;
+      } catch (error) {
+        console.error(`Error scoring ${strategy.dimension}:`, error);
+        analysis.scores[strategy.dimension] = 5;
+        analysis.analysis[strategy.dimension] = {
+          reasoning: "Error during scoring process",
+          suggestions: ["Retry scoring"]
+        };
+      }
+    }
+    return {
+      analysis,
+      totalCost,
+      costBreakdown
+    };
+  }
+  /**
+   * Enhanced content improvement with cost tracking
+   */
+  async improveContentWithCosts(content, analysis, options) {
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    const finalOptions = options;
     try {
-      const response = await this.ai.prompt(prompt);
-      const sections = response.split("\n\n");
-      return sections[0] || content;
+      if ("promptWithOptions" in this.ai && typeof this.ai.promptWithOptions === "function") {
+        const response = await this.ai.promptWithOptions(prompt, finalOptions);
+        const sections = response.content.split("\n\n");
+        return {
+          content: sections[0] || content,
+          costInfo: response.costInfo
+        };
+      } else {
+        const responseText = await this.ai.prompt(prompt);
+        const sections = responseText.split("\n\n");
+        return {
+          content: sections[0] || content,
+          costInfo: {
+            provider: finalOptions?.provider || "unknown",
+            model: finalOptions?.model || "unknown",
+            inputTokens: Math.ceil(prompt.length / 4),
+            outputTokens: Math.ceil(responseText.length / 4),
+            totalCost: 0,
+            // Cannot calculate without enhanced AI
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        };
+      }
     } catch (error) {
       console.error("Error improving content:", error);
-      return content;
+      return {
+        content,
+        costInfo: {
+          provider: finalOptions?.provider || "unknown",
+          model: finalOptions?.model || "unknown",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      };
+    }
+  }
+  /**
+   * Batch scoring for cost optimization
+   */
+  async scoreContentBatch(contentList, strategies) {
+    const results = [];
+    for (const content of contentList) {
+      const result = await this.scoreContentWithCosts(content, strategies);
+      results.push(result);
+    }
+    return results;
+  }
+  /**
+   * Estimate cost for scoring operation
+   */
+  async estimateScoringCost(content, strategies) {
+    if (!("estimateCost" in this.ai) || typeof this.ai.estimateCost !== "function") {
+      return 0;
+    }
+    const defaultStrategies = strategies || [
+      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
+      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+    ];
+    let totalEstimatedCost = 0;
+    for (const strategy of defaultStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
+      const prompt = promptTemplate.replace("{content}", content);
+      const cost = await this.ai.estimateCost(prompt, strategy.preferredModel);
+      totalEstimatedCost += cost;
+    }
+    return totalEstimatedCost;
+  }
+  /**
+   * Estimate cost for improvement operation
+   */
+  async estimateImprovementCost(content, analysis, options) {
+    if (!("estimateCost" in this.ai) || typeof this.ai.estimateCost !== "function") {
+      return 0;
+    }
+    const analysisStr = JSON.stringify(analysis, null, 2);
+    const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    return await this.ai.estimateCost(prompt, options);
+  }
+  /**
+   * Score a specific dimension with cost tracking
+   */
+  async scoreDimensionWithCost(prompt, modelOptions) {
+    if ("promptWithOptions" in this.ai && typeof this.ai.promptWithOptions === "function") {
+      const response = await this.ai.promptWithOptions(prompt, modelOptions);
+      return {
+        response: parseGooseResponse(response.content),
+        costInfo: response.costInfo
+      };
+    } else {
+      const responseText = await this.ai.prompt(prompt);
+      return {
+        response: parseGooseResponse(responseText),
+        costInfo: {
+          provider: modelOptions?.provider || "unknown",
+          model: modelOptions?.model || "unknown",
+          inputTokens: Math.ceil(prompt.length / 4),
+          outputTokens: Math.ceil(responseText.length / 4),
+          totalCost: 0,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      };
     }
   }
 };
 
+// src/utils/config.ts
+var UnsupportedConfigVersionError = class extends Error {
+  constructor(version) {
+    super(`Unsupported configuration version: ${version}. Supported versions: 1, 2`);
+    this.name = "UnsupportedConfigVersionError";
+  }
+};
+var InvalidConfigError = class extends Error {
+  constructor(message) {
+    super(`Invalid configuration: ${message}`);
+    this.name = "InvalidConfigError";
+  }
+};
+function detectConfigVersion(config) {
+  if (typeof config === "object" && config !== null) {
+    if ("version" in config && typeof config.version === "number") {
+      return config.version;
+    }
+    if ("models" in config || "workflows" in config) {
+      return 1;
+    }
+    if ("costOptimized" in config || "qualityFirst" in config) {
+      return 2;
+    }
+  }
+  return 2;
+}
+function validateConfig(config, version) {
+  if (!config || typeof config !== "object") {
+    throw new InvalidConfigError("Configuration must be an object");
+  }
+  switch (version) {
+    case 1:
+      validateV1Config(config);
+      break;
+    case 2:
+      validateV2Config(config);
+      break;
+    default:
+      throw new UnsupportedConfigVersionError(version);
+  }
+}
+function validateV1Config(config) {
+  const v2Props = ["costOptimized", "qualityFirst", "modelOptions"];
+  const hasV2Props = v2Props.some((prop) => prop in config);
+  if (hasV2Props) {
+    throw new InvalidConfigError("V1 configuration contains V2-specific properties. Please use version 2 or migrate the configuration.");
+  }
+}
+function validateV2Config(config) {
+  const v1OnlyProps = ["workflows"];
+  const hasV1OnlyProps = v1OnlyProps.some((prop) => prop in config);
+  if (hasV1OnlyProps) {
+    throw new InvalidConfigError("V2 configuration contains V1-specific properties (workflows). Please use version 1 or migrate to the V2 structure.");
+  }
+}
+function migrateV1ToV2(v1Config) {
+  const v2Config = {
+    version: 2,
+    verbose: v1Config.verbose,
+    logLevel: v1Config.logLevel,
+    contentCollection: v1Config.contentCollection
+  };
+  if (v1Config.models) {
+    v2Config.models = v1Config.models;
+  }
+  if (v1Config.providers) {
+    v2Config.providers = v1Config.providers;
+  }
+  if (v1Config.models?.review) {
+    v2Config.model = v1Config.models.review;
+  }
+  if (v1Config.providers?.review) {
+    v2Config.provider = v1Config.providers.review;
+  }
+  if (v2Config.provider || v2Config.model) {
+    v2Config.modelOptions = {
+      provider: v2Config.provider,
+      model: v2Config.model
+    };
+  }
+  return v2Config;
+}
+function normalizeConfig(rawConfig) {
+  const version = detectConfigVersion(rawConfig);
+  validateConfig(rawConfig, version);
+  let config;
+  switch (version) {
+    case 1: {
+      const v1Config = { version: 1, ...rawConfig };
+      config = migrateV1ToV2(v1Config);
+      console.warn('\u26A0\uFE0F  Loading legacy V1 configuration format. Consider migrating to V2 format by adding "version": 2 and updating the structure.');
+      break;
+    }
+    case 2: {
+      config = { version: 2, ...rawConfig };
+      break;
+    }
+    default:
+      throw new UnsupportedConfigVersionError(version);
+  }
+  return config;
+}
+
 // src/index.ts
 import path3 from "path";
 import fs3 from "fs/promises";
-var Shakespeare = class {
+var Shakespeare = class _Shakespeare {
   constructor(rootDir = process.cwd(), dbPath, options = {}) {
+    this.verbose = false;
     this.rootDir = rootDir;
     this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
+    this.logger = new ShakespeareLogger();
+    this.config = {
+      version: 2,
+      dbPath,
+      contentCollection: options.contentCollection,
+      verbose: false,
+      // Will be updated by setVerbose() if needed
+      model: options.defaultModelOptions?.model,
+      provider: options.defaultModelOptions?.provider,
+      modelOptions: options.defaultModelOptions
+    };
+    this.modelOptions = options.defaultModelOptions;
     this.scanner = options.scanner ?? new ContentScanner(rootDir, options.contentCollection);
-    this.db = options.database ?? new ContentDatabaseHandler(this.dbPath);
-    this.ai = options.ai ?? new AIScorer();
+    this._db = options.database ?? new ContentDatabaseHandler(this.dbPath);
+    if (options.ai) {
+      this.ai = options.ai;
+    } else {
+      let aiScorerOptions = {};
+      if (options.aiOptions) {
+        aiScorerOptions = options.aiOptions;
+      } else if (options.defaultModelOptions) {
+        const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
+        aiScorerOptions = { ai: gooseAI };
+      } else {
+        const gooseAI = new GooseAI(rootDir, {}, this.logger);
+        aiScorerOptions = { ai: gooseAI };
+      }
+      this.ai = new AIScorer(aiScorerOptions);
+    }
     const dbDir = path3.dirname(this.dbPath);
-    fs3.mkdir(dbDir, { recursive: true }).catch(console.error);
+    fs3.mkdir(dbDir, { recursive: true }).catch((err) => this.logger.error(`Failed to create database directory: ${err}`));
+  }
+  /**
+   * Get database instance for testing purposes
+   * @internal
+   */
+  get db() {
+    return this._db;
   }
   /**
    * Initialize the system
    */
   async initialize() {
-    await this.db.load();
+    await this._db.load();
   }
   /**
    * Discover and index content without scoring (lightweight operation)
@@ -466,7 +1037,7 @@ var Shakespeare = class {
    */
   async discoverContent() {
     const files = await this.scanner.scanContent();
-    const database = this.db.getData();
+    const database = this._db.getData();
     const newFiles = [];
     for (const file of files) {
       if (!database.entries[file]) {
@@ -486,11 +1057,11 @@ var Shakespeare = class {
           // Mark as unreviewed
           reviewHistory: []
         };
-        await this.db.updateEntry(file, (_entry) => newEntry);
+        await this._db.updateEntry(file, (_entry) => newEntry);
         newFiles.push(file);
       }
     }
-    await this.db.save();
+    await this._db.save();
     return newFiles;
   }
   /**
@@ -498,7 +1069,7 @@ var Shakespeare = class {
    */
   async updateContentIndex() {
     const files = await this.scanner.scanContent();
-    const database = this.db.getData();
+    const database = this._db.getData();
     for (const file of files) {
       if (!database.entries[file]) {
         const content = await this.scanner.readContent(file);
@@ -516,7 +1087,7 @@ var Shakespeare = class {
             improvements: []
           }]
         };
-        await this.db.updateEntry(file, (_entry) => newEntry);
+        await this._db.updateEntry(file, (_entry) => newEntry);
       }
     }
   }
@@ -524,20 +1095,44 @@ var Shakespeare = class {
    * Get the current database data
    */
   getDatabaseData() {
-    return this.db.getData();
+    return this._db.getData();
   }
   /**
    * Get content that needs review (unreviewed/discovered content)
+   * @deprecated Use getContentNeedingReviewDetails() for full content objects
    */
   getContentNeedingReview() {
-    const database = this.db.getData();
-    return Object.entries(database.entries).filter(([_, entry]) => entry.status === "needs_review").map(([path5, _]) => path5);
+    if (!this._db.getData().lastUpdated) {
+      this.logger.warn("Database not loaded. Call initialize() first.");
+    }
+    const database = this._db.getData();
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path5, _]) => path5);
+  }
+  /**
+   * Get detailed content objects that need review
+   */
+  getContentNeedingReviewDetails() {
+    if (!this._db.getData().lastUpdated) {
+      this.logger.warn("Database not loaded. Call initialize() first.");
+    }
+    const database = this._db.getData();
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([_, entry]) => entry);
+  }
+  /**
+   * Get content entries by status
+   */
+  getContentByStatus(status) {
+    if (!this._db.getData().lastUpdated) {
+      this.logger.warn("Database not loaded. Call initialize() first.");
+    }
+    const database = this._db.getData();
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === status).map(([_, entry]) => entry);
   }
   /**
    * Review/score a specific content file
    */
   async reviewContent(path5) {
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entry = database.entries[path5];
     if (!entry) {
       throw new Error(`Content not found: ${path5}`);
@@ -558,14 +1153,14 @@ var Shakespeare = class {
         improvements: []
       }]
     };
-    await this.db.updateEntry(path5, () => updatedEntry);
-    await this.db.save();
+    await this._db.updateEntry(path5, () => updatedEntry);
+    await this._db.save();
   }
   /**
    * Get the entry with the lowest average score (excludes unreviewed content)
    */
   getWorstScoringContent() {
-    const database = this.db.getData();
+    const database = this._db.getData();
     let worstScore = Infinity;
     let worstPath = null;
     for (const [path5, entry] of Object.entries(database.entries)) {
@@ -583,17 +1178,45 @@ var Shakespeare = class {
    * Improve content at the specified path
    */
   async improveContent(path5) {
-    const database = this.db.getData();
+    const database = this._db.getData();
     const entry = database.entries[path5];
     if (!entry) {
       throw new Error(`No content found at path: ${path5}`);
     }
     const content = await this.scanner.readContent(path5);
     const analysis = await this.ai.scoreContent(content);
-    const improvedContent = await this.ai.improveContent(content, analysis);
+    let improvedContent;
+    try {
+      this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
+      const improveOptions = await this.getWorkflowModelOptions("improve");
+      if ("improveContentWithCosts" in this.ai && typeof this.ai.improveContentWithCosts === "function") {
+        const response = await this.ai.improveContentWithCosts(content, analysis, improveOptions);
+        improvedContent = response.content;
+      } else {
+        improvedContent = await this.ai.improveContent(content, analysis);
+      }
+      this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
+      if (!improvedContent || improvedContent.trim().length === 0) {
+        throw new Error("AI returned empty improved content");
+      }
+      if (improvedContent === content) {
+        this.logger.warn("\u26A0\uFE0F  Warning: Improved content is identical to original");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`\u274C Content improvement failed: ${errorMessage}`);
+      throw error;
+    }
     const newAnalysis = await this.ai.scoreContent(improvedContent);
-    await fs3.writeFile(path5, improvedContent, "utf-8");
-    await this.db.updateEntry(path5, (entry2) => {
+    try {
+      await fs3.writeFile(path5, improvedContent, "utf-8");
+      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${path5}`);
+    } catch (writeError) {
+      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+      this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
+      throw writeError;
+    }
+    await this._db.updateEntry(path5, (entry2) => {
       if (!entry2) {
         throw new Error(`Entry not found for path: ${path5}`);
       }
@@ -623,7 +1246,508 @@ var Shakespeare = class {
     if (avgScore >= 7) return "needs_improvement";
     return "needs_review";
   }
+  /**
+   * Set verbose logging for progress reporting
+   */
+  setVerbose(verbose) {
+    this.verbose = verbose;
+    this.logger.setVerbose(verbose);
+    this.config.verbose = verbose;
+  }
+  /**
+   * Get current verbose setting
+   */
+  isVerbose() {
+    return this.verbose;
+  }
+  /**
+   * Get current model options being used
+   */
+  getModelOptions() {
+    return this.modelOptions;
+  }
+  /**
+   * Log message using structured logger
+   * @param message - The message to log
+   * @param level - Log level: 'always' (always log), 'verbose' (only when verbose), 'debug' (extra detail)
+   */
+  log(message, level = "verbose") {
+    switch (level) {
+      case "always":
+        this.logger.always(message);
+        break;
+      case "verbose":
+        this.logger.verbose(message);
+        break;
+      case "debug":
+        this.logger.debug(message);
+        break;
+    }
+  }
+  // ========== HIGH-LEVEL WORKFLOW METHODS ==========
+  /**
+   * Discover content and provide detailed reporting
+   */
+  async discoverAndReport() {
+    const startTime = Date.now();
+    this.log("\u{1F50D} Starting content discovery...");
+    try {
+      const discovered = await this.discoverContent();
+      const duration = Date.now() - startTime;
+      this.log(`\u{1F4CA} Discovery completed: ${discovered.length} files found`);
+      if (discovered.length > 0) {
+        discovered.forEach((file) => this.log(`  \u{1F4C4} ${path3.basename(file)}`));
+      }
+      return {
+        successful: discovered,
+        failed: [],
+        summary: {
+          total: discovered.length,
+          succeeded: discovered.length,
+          failed: 0,
+          duration
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.log(`\u274C Discovery failed: ${errorMessage}`);
+      return {
+        successful: [],
+        failed: [{ path: "discovery", error: errorMessage }],
+        summary: {
+          total: 0,
+          succeeded: 0,
+          failed: 1,
+          duration: Date.now() - startTime
+        }
+      };
+    }
+  }
+  /**
+   * Review all content that needs review
+   */
+  async reviewAll() {
+    const startTime = Date.now();
+    this.log("\u{1F4CA} Starting content review...", "always");
+    if (this.verbose) {
+      this.log("\u{1F527} Configuration Details:");
+      this.log(`   Root Directory: ${this.rootDir}`);
+      this.log(`   Database Path: ${this.dbPath}`);
+      this.log(`   Content Collection: ${this.config.contentCollection || "auto-detected"}`);
+      this.log(`   Model: ${this.config.model || "default"}`);
+      this.log(`   Provider: ${this.config.provider || "default"}`);
+      this.log(`   Verbose Mode: ${this.verbose ? "\u2713 enabled" : "\u2717 disabled"}`);
+      this.log("");
+    }
+    await this.initialize();
+    const database = this._db.getData();
+    this.log("\u{1F4CB} Database Status:", "always");
+    this.log(`   Total entries: ${Object.keys(database.entries || {}).length}`, "always");
+    this.log(`   Last updated: ${database.lastUpdated || "never"}`, "always");
+    const allEntries = Object.entries(database.entries || {});
+    const statusCounts = allEntries.reduce((counts, [, entry]) => {
+      counts[entry.status] = (counts[entry.status] || 0) + 1;
+      return counts;
+    }, {});
+    this.log("   Status breakdown:", "always");
+    Object.entries(statusCounts).forEach(([status, count]) => {
+      this.log(`     ${status}: ${count}`, "always");
+    });
+    this.log("", "always");
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path5]) => path5);
+    if (contentNeedingReview.length === 0) {
+      this.log("\u2705 No content needs review", "always");
+      return {
+        successful: [],
+        failed: [],
+        summary: { total: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime }
+      };
+    }
+    this.log(`\u{1F4DD} Found ${contentNeedingReview.length} files needing review`, "always");
+    if (this.verbose) {
+      this.log("\u{1F4C2} Files to review:");
+      contentNeedingReview.forEach((filePath, index) => {
+        this.log(`   ${index + 1}. ${path3.basename(filePath)}`);
+      });
+      this.log("");
+    }
+    const successful = [];
+    const failed = [];
+    let totalFileSize = 0;
+    let totalScoreTime = 0;
+    for (let i = 0; i < contentNeedingReview.length; i++) {
+      const filePath = contentNeedingReview[i];
+      const fileStartTime = Date.now();
+      try {
+        this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`, "always");
+        if (this.verbose) {
+          try {
+            const fs4 = await import("fs/promises");
+            const stats = await fs4.stat(filePath);
+            const fileSize = Math.round(stats.size / 1024 * 10) / 10;
+            totalFileSize += stats.size;
+            this.log(`   \u{1F4C4} File size: ${fileSize} KB`, "debug");
+            this.log(`   \u{1F4C5} Last modified: ${stats.mtime.toISOString()}`, "debug");
+          } catch (statError) {
+            this.log(`   \u26A0\uFE0F Could not read file stats: ${statError}`, "debug");
+          }
+        }
+        const reviewStartTime = Date.now();
+        await this.reviewContent(filePath);
+        const reviewDuration = Date.now() - reviewStartTime;
+        totalScoreTime += reviewDuration;
+        const updatedDatabase = this._db.getData();
+        const updatedEntry = updatedDatabase.entries[filePath];
+        successful.push(filePath);
+        const fileDuration = Date.now() - fileStartTime;
+        this.log(`\u2705 Reviewed: ${path3.basename(filePath)} (${fileDuration}ms)`, "always");
+        if (this.verbose && updatedEntry) {
+          this.log("   \u{1F4CA} Quality Scores:");
+          this.log(`      Readability: ${updatedEntry.currentScores.readability}/10`);
+          this.log(`      SEO Score: ${updatedEntry.currentScores.seoScore}/10`);
+          this.log(`      Technical Accuracy: ${updatedEntry.currentScores.technicalAccuracy}/10`);
+          this.log(`      Engagement: ${updatedEntry.currentScores.engagement}/10`);
+          this.log(`      Content Depth: ${updatedEntry.currentScores.contentDepth}/10`);
+          const avgScore = Object.values(updatedEntry.currentScores).reduce((a, b) => a + b, 0) / 5;
+          this.log(`   \u{1F3AF} Average Score: ${Math.round(avgScore * 10) / 10}/10`);
+          this.log(`   \u23F1\uFE0F Review Time: ${reviewDuration}ms`, "debug");
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failed.push({ path: filePath, error: errorMessage });
+        const fileDuration = Date.now() - fileStartTime;
+        this.log(`\u274C Failed to review ${path3.basename(filePath)} (${fileDuration}ms): ${errorMessage}`, "always");
+        if (this.verbose) {
+          this.log(`   \u{1F50D} Error details: ${error instanceof Error ? error.stack : errorMessage}`, "debug");
+        }
+      }
+      const progress = Math.round((i + 1) / contentNeedingReview.length * 100);
+      if (this.verbose) {
+        this.log(`   \u{1F4C8} Progress: ${progress}% (${i + 1}/${contentNeedingReview.length})`, "debug");
+        this.log("", "debug");
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Review completed: ${successful.length} succeeded, ${failed.length} failed`, "always");
+    if (this.verbose) {
+      this.log("\u{1F4CA} Summary Statistics:");
+      this.log(`   \u23F1\uFE0F Total time: ${duration}ms (${Math.round(duration / 1e3 * 10) / 10}s)`);
+      this.log(`   \u{1F4C4} Total file size: ${Math.round(totalFileSize / 1024 * 10) / 10} KB`);
+      this.log(`   \u{1F916} Total scoring time: ${totalScoreTime}ms`);
+      this.log(`   \u26A1 Average time per file: ${Math.round(duration / contentNeedingReview.length)}ms`);
+      if (successful.length > 0) {
+        this.log(`   \u2705 Success rate: ${Math.round(successful.length / contentNeedingReview.length * 100)}%`);
+      }
+      if (failed.length > 0) {
+        this.log("   \u274C Failed files:");
+        failed.forEach(({ path: filePath, error }) => {
+          this.log(`      ${path3.basename(filePath)}: ${error}`);
+        });
+      }
+    }
+    return {
+      successful,
+      failed,
+      summary: {
+        total: contentNeedingReview.length,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Improve the worst-scoring content
+   */
+  async improveWorst(count = 1) {
+    const startTime = Date.now();
+    this.log(`\u{1F680} Starting improvement of ${count} worst-scoring content...`);
+    await this.initialize();
+    const successful = [];
+    const failed = [];
+    for (let i = 0; i < count; i++) {
+      try {
+        const worstPath = this.getWorstScoringContent();
+        if (!worstPath) {
+          this.log("\u2705 No content needs improvement");
+          break;
+        }
+        this.log(`\u{1F4DD} Improving ${path3.basename(worstPath)} (${i + 1}/${count})`);
+        await this.improveContent(worstPath);
+        successful.push(worstPath);
+        this.log(`\u2705 Improved: ${path3.basename(worstPath)}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failed.push({ path: "improvement", error: errorMessage });
+        this.log(`\u274C Improvement failed: ${errorMessage}`);
+      }
+    }
+    const duration = Date.now() - startTime;
+    this.log(`\u{1F389} Improvement completed: ${successful.length} succeeded, ${failed.length} failed`);
+    return {
+      successful,
+      failed,
+      summary: {
+        total: count,
+        succeeded: successful.length,
+        failed: failed.length,
+        duration
+      }
+    };
+  }
+  /**
+   * Run the complete workflow: discover -> review -> improve
+   */
+  async runFullWorkflow(options = {}) {
+    this.log("\u{1F3AD} Starting complete Shakespeare workflow...");
+    const discovery = await this.discoverAndReport();
+    const review = await this.reviewAll();
+    const improvement = await this.improveWorst(options.improveCount || 1);
+    this.log("\u{1F389} Complete workflow finished!");
+    return {
+      discovery,
+      review,
+      improvement
+    };
+  }
+  /**
+   * Get content health status dashboard
+   */
+  async getStatus() {
+    await this.initialize();
+    const database = this._db.getData();
+    const entries = Object.entries(database.entries);
+    const needsReview = entries.filter(([, entry]) => entry.status === "needs_review").length;
+    const needsImprovement = entries.filter(([, entry]) => entry.status === "needs_improvement").length;
+    const meetsTargets = entries.filter(([, entry]) => entry.status === "meets_targets").length;
+    const scores = entries.map(([, entry]) => {
+      const scores2 = Object.values(entry.currentScores || {});
+      return scores2.reduce((a, b) => a + b, 0) / scores2.length;
+    }).filter((score) => !isNaN(score));
+    const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const worstScoring = this.getWorstScoringContent();
+    return {
+      totalFiles: entries.length,
+      needsReview,
+      needsImprovement,
+      meetsTargets,
+      averageScore: Math.round(averageScore * 10) / 10,
+      worstScoring
+    };
+  }
+  // ========== STATIC FACTORY METHODS ==========
+  /**
+   * Create Shakespeare instance with smart defaults and auto-detection
+   * @param rootDir - The root directory to operate in
+   * @param config - Configuration options
+   */
+  static async create(rootDir, config = {}) {
+    const dbPath = config.dbPath;
+    const detectedType = await detectProjectType(rootDir);
+    const contentCollection = config.contentCollection || detectedType;
+    const defaultModelOptions = getOptimizedModelOptions(config);
+    const options = {
+      contentCollection,
+      defaultModelOptions
+    };
+    const shakespeare = new _Shakespeare(rootDir, dbPath, options);
+    shakespeare.config = {
+      ...shakespeare.config,
+      ...config,
+      contentCollection,
+      model: defaultModelOptions?.model || config.model,
+      provider: defaultModelOptions?.provider || config.provider,
+      modelOptions: defaultModelOptions
+    };
+    if (config.verbose) {
+      shakespeare.setVerbose(true);
+    }
+    if (config.logLevel) {
+      shakespeare.logger.setLevel(config.logLevel);
+    }
+    return shakespeare;
+  }
+  /**
+   * Create Shakespeare from configuration file or database config
+   */
+  static async fromConfig(configPath) {
+    const { join, dirname, resolve } = await import("path");
+    const { existsSync, readFileSync } = await import("fs");
+    const cwd = process.cwd();
+    const possiblePaths = [
+      configPath,
+      join(cwd, ".shakespeare", "config.json"),
+      join(cwd, "shakespeare.config.js"),
+      join(cwd, "shakespeare.config.mjs"),
+      join(cwd, "shakespeare.config.json"),
+      join(cwd, ".shakespeare.json")
+    ].filter(Boolean);
+    for (const configFile of possiblePaths) {
+      try {
+        if (existsSync(configFile)) {
+          let config;
+          if (configFile.endsWith(".json")) {
+            config = JSON.parse(readFileSync(configFile, "utf-8"));
+          } else {
+            const configModule = await import(configFile);
+            config = configModule.default || configModule;
+          }
+          try {
+            const normalizedConfig = normalizeConfig(config);
+            let configDir = dirname(resolve(configFile));
+            if (configFile.includes(".shakespeare")) {
+              configDir = dirname(configDir);
+            }
+            if (normalizedConfig.dbPath) {
+              normalizedConfig.dbPath = resolve(configDir, normalizedConfig.dbPath);
+            }
+            const shakespeare = await _Shakespeare.create(configDir, normalizedConfig);
+            return shakespeare;
+          } catch (error) {
+            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+              new ShakespeareLogger().error(`Failed to load config from ${configFile}: ${error.message}`);
+              throw error;
+            }
+            throw error;
+          }
+        }
+      } catch (error) {
+        if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+          throw error;
+        }
+        new ShakespeareLogger().warn(`Failed to load config from ${configFile}: ${error}`);
+      }
+    }
+    try {
+      const dbPath = join(cwd, ".shakespeare", "content-db.json");
+      if (existsSync(dbPath)) {
+        const db = JSON.parse(readFileSync(dbPath, "utf-8"));
+        if (db.config) {
+          try {
+            const normalizedConfig = normalizeConfig(db.config);
+            const shakespeare = await _Shakespeare.create(cwd, normalizedConfig);
+            return shakespeare;
+          } catch (error) {
+            if (error instanceof UnsupportedConfigVersionError || error instanceof InvalidConfigError) {
+              new ShakespeareLogger().error(`Failed to load config from database: ${error.message}`);
+              throw error;
+            }
+            throw error;
+          }
+        }
+      }
+    } catch (error) {
+      new ShakespeareLogger().warn(`Failed to load config from database: ${error}`);
+    }
+    return await _Shakespeare.create(cwd);
+  }
+  /**
+   * Convert WorkflowConfig to ShakespeareConfig
+   */
+  static async workflowConfigToShakespeareConfig(workflowConfig) {
+    const config = {
+      version: 2,
+      verbose: workflowConfig.verbose,
+      logLevel: workflowConfig.logLevel
+    };
+    if (workflowConfig.contentCollection) {
+      config.contentCollection = workflowConfig.contentCollection;
+    }
+    if (workflowConfig.models?.review) {
+      config.model = workflowConfig.models.review;
+    }
+    if (workflowConfig.providers?.review) {
+      config.provider = workflowConfig.providers.review;
+    }
+    if (config.provider || config.model) {
+      config.modelOptions = {
+        provider: config.provider,
+        model: config.model
+      };
+    }
+    return config;
+  }
+  // ========== WORKFLOW CONFIGURATION METHODS ==========
+  /**
+   * Save workflow configuration to the content database
+   */
+  async saveWorkflowConfig(workflowConfig) {
+    await this._db.load();
+    const currentData = this._db.getData();
+    currentData.config = workflowConfig;
+    await this._db.save();
+    this.log("\u{1F4BE} Workflow configuration saved to content database");
+  }
+  /**
+   * Get current workflow configuration from database
+   */
+  async getWorkflowConfig() {
+    await this._db.load();
+    return this._db.getData().config;
+  }
+  /**
+   * Get workflow-specific model options for an operation type
+   */
+  async getWorkflowModelOptions(workflowType) {
+    if (this.config.taskModelOptions?.[workflowType]) {
+      return this.config.taskModelOptions[workflowType];
+    }
+    const provider = this.config.providers?.[workflowType];
+    const model = this.config.models?.[workflowType];
+    if (provider || model) {
+      return { provider, model };
+    }
+    const workflowConfig = await this.getWorkflowConfig();
+    if (workflowConfig) {
+      const legacyProvider = workflowConfig.providers?.[workflowType];
+      const legacyModel = workflowConfig.models?.[workflowType];
+      if (legacyProvider || legacyModel) {
+        return { provider: legacyProvider, model: legacyModel };
+      }
+    }
+    return void 0;
+  }
 };
+async function detectProjectType(rootDir) {
+  try {
+    const { existsSync } = await import("fs");
+    const { join } = await import("path");
+    if (existsSync(join(rootDir, "astro.config.mjs")) || existsSync(join(rootDir, "astro.config.js")) || existsSync(join(rootDir, "src/content"))) {
+      return "astro";
+    }
+    if (existsSync(join(rootDir, "next.config.js")) || existsSync(join(rootDir, "next.config.mjs"))) {
+      return "nextjs";
+    }
+    if (existsSync(join(rootDir, "gatsby-config.js")) || existsSync(join(rootDir, "gatsby-config.ts"))) {
+      return "gatsby";
+    }
+    return "custom";
+  } catch {
+    return "custom";
+  }
+}
+function getOptimizedModelOptions(config) {
+  if (config.modelOptions) return config.modelOptions;
+  if (config.model || config.provider) {
+    return {
+      provider: config.provider,
+      model: config.model
+    };
+  }
+  if (config.costOptimized) {
+    return {
+      provider: "google",
+      model: "gemini-1.5-flash"
+    };
+  }
+  if (config.qualityFirst) {
+    return {
+      provider: "anthropic",
+      model: "claude-3-5-sonnet"
+    };
+  }
+  return void 0;
+}
 
 // src/scripts/improveContent.ts
 import path4 from "path";
