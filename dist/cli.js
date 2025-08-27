@@ -763,40 +763,51 @@ var ANALYSIS_PROMPTS = {
     `
 };
 var IMPROVEMENT_PROMPT = `
-You are a content improvement specialist. Review the following content and its quality analysis.
-Your goal is to ENHANCE the existing content while preserving its comprehensive depth and structure.
+TASK: Improve the provided content based on the quality analysis while maintaining its full length and comprehensive coverage.
 
-Current scores and analysis:
+ANALYSIS AND CONTENT:
 {analysis}
 
-Original content:
+ORIGINAL CONTENT TO IMPROVE:
 {content}
 
-CRITICAL LENGTH AND STRUCTURE PRESERVATION:
-- MAINTAIN the original content length and depth - your improved version should be similar in length to the original
-- PRESERVE all valuable information, examples, code blocks, and technical details
-- DO NOT condense, summarize, or remove comprehensive coverage
-- ENHANCE clarity and presentation while keeping all substantive content
-- If the original is comprehensive and detailed, your improvement should be equally comprehensive
+MANDATORY OUTPUT REQUIREMENTS - VIOLATION WILL RESULT IN REJECTION:
 
-CRITICAL OUTPUT INSTRUCTIONS:
-1. Return ONLY the improved version of the complete content
-2. Do NOT include any preamble, explanation, or commentary
-3. Do NOT start with phrases like "I'll help improve..." or "Here's the improved version..."
-4. Preserve ALL frontmatter (YAML between --- delimiters) EXACTLY as is
-5. Preserve ALL MDX/JSX components and their syntax
-6. Maintain the same file format (Markdown, MDX, etc.)
-7. Start your response with the frontmatter (if present) or the first line of actual content
+1. LENGTH REQUIREMENT: Your output must be 80-120% the length of the original content
+   - Original length: Approximately {contentLength} characters  
+   - Required output: 80-120% of original length
+   - DO NOT TRUNCATE, SUMMARIZE, OR CONDENSE
+   - INCLUDE ALL SECTIONS, EXAMPLES, AND DETAILS
 
-IMPROVEMENT FOCUS:
-- Target dimensions that scored lowest in the analysis
-- Improve readability through better organization, clearer explanations, and smoother transitions
-- Enhance engagement with better examples, more compelling language, and improved structure
-- Fix technical accuracy issues while maintaining comprehensive coverage
-- Improve SEO through better headers, keyword usage, and content organization
-- Deepen content where suggestions indicate gaps, but preserve existing depth
+2. COMPLETE CONTENT REQUIREMENT: 
+   - Provide the ENTIRE improved content, not partial content
+   - DO NOT use "[Continue with remaining sections...]" or similar
+   - Every section, code block, and example must be included in full
+   - If you cannot complete the full content, do not attempt the task
 
-Remember: You are IMPROVING comprehensive content, not rewriting or condensing it. The enhanced version should maintain the original's value while being more effective and engaging.
+3. NO COMMENTARY: 
+   - Start immediately with the frontmatter or first content line
+   - NO preamble like "I'll analyze..." or "Here's the improved..."  
+   - NO explanatory text before or after the content
+   - ONLY provide the complete improved content
+
+4. STRUCTURE PRESERVATION:
+   - Preserve ALL frontmatter EXACTLY (YAML between --- delimiters)
+   - Maintain all code blocks, examples, and technical details
+   - Keep the same document structure and format
+   - Preserve all MDX/JSX components
+
+IMPROVEMENT GUIDELINES:
+Focus on the lowest-scoring dimensions from the analysis:
+- Enhance readability without removing content depth
+- Improve technical accuracy of code examples and explanations  
+- Increase engagement through better examples and clearer language
+- Optimize for SEO with better headers and keyword usage
+- Expand content depth where analysis suggests gaps
+
+CRITICAL: This is not a content creation task. You are improving existing comprehensive content. Every section, example, and detail from the original must be present in your improved version, enhanced but not removed.
+
+Begin your response immediately with the content (frontmatter first if present):
 `;
 function parseGooseResponse(response) {
   let score = 7;
@@ -934,7 +945,7 @@ var AIScorer = class {
       operation: "improve_content_start"
     });
     const analysisStr = JSON.stringify(analysis, null, 2);
-    const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content).replace("{contentLength}", content.length.toString());
     this.logger.info(`[${executionId}] Full improvement request`, {
       executionId,
       promptLength: prompt.length,
@@ -1184,7 +1195,7 @@ var AIScorer = class {
       return 0;
     }
     const analysisStr = JSON.stringify(analysis, null, 2);
-    const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
+    const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content).replace("{contentLength}", content.length.toString());
     return await this.ai.estimateCost(prompt, options);
   }
   /**
