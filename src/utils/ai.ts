@@ -195,6 +195,7 @@ function parseGooseResponse(response: string): AIScoreResponse {
 export interface AIScorerOptions {
   ai?: IAI;
   logger?: ShakespeareLogger;
+  defaultModelOptions?: AIModelOptions;
 }
 
 /**
@@ -203,10 +204,12 @@ export interface AIScorerOptions {
 export class AIScorer implements IContentScorer {
   private ai: IAI;
   private logger: ShakespeareLogger;
+  private defaultModelOptions?: AIModelOptions;
 
   constructor(options: AIScorerOptions = {}) {
     this.ai = options.ai ?? new GooseAI();
     this.logger = options.logger ?? new ShakespeareLogger();
+    this.defaultModelOptions = options.defaultModelOptions;
   }
 
   /**
@@ -225,13 +228,15 @@ export class AIScorer implements IContentScorer {
     const costBreakdown: Record<string, AICostInfo> = {};
     let totalCost = 0;
 
-    // Use default strategies if none provided - optimized for cost
+    // Use default strategies if none provided - respect configured model options
+    const defaultModel = this.defaultModelOptions || { provider: 'google', model: 'gemini-1.5-flash' };
+    
     const scoringStrategies: ScoringStrategy[] = strategies || [
-      { dimension: 'readability', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
-      { dimension: 'seoScore', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
-      { dimension: 'technicalAccuracy', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } },
-      { dimension: 'engagement', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
-      { dimension: 'contentDepth', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } }
+      { dimension: 'readability', preferredModel: defaultModel },
+      { dimension: 'seoScore', preferredModel: defaultModel },
+      { dimension: 'technicalAccuracy', preferredModel: defaultModel },
+      { dimension: 'engagement', preferredModel: defaultModel },
+      { dimension: 'contentDepth', preferredModel: defaultModel }
     ];
 
     // Score each dimension with cost tracking
@@ -339,12 +344,14 @@ export class AIScorer implements IContentScorer {
       return 0; // Cannot estimate without enhanced AI
     }
 
+    const defaultModel = this.defaultModelOptions || { provider: 'google', model: 'gemini-1.5-flash' };
+    
     const defaultStrategies: ScoringStrategy[] = strategies || [
-      { dimension: 'readability', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
-      { dimension: 'seoScore', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
-      { dimension: 'technicalAccuracy', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } },
-      { dimension: 'engagement', preferredModel: { provider: 'google', model: 'gemini-1.5-flash' } },
-      { dimension: 'contentDepth', preferredModel: { provider: 'groq', model: 'llama-3.1-8b' } }
+      { dimension: 'readability', preferredModel: defaultModel },
+      { dimension: 'seoScore', preferredModel: defaultModel },
+      { dimension: 'technicalAccuracy', preferredModel: defaultModel },
+      { dimension: 'engagement', preferredModel: defaultModel },
+      { dimension: 'contentDepth', preferredModel: defaultModel }
     ];
 
     let totalEstimatedCost = 0;

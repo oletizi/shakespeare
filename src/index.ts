@@ -107,7 +107,7 @@ export class Shakespeare {
       } else if (options.defaultModelOptions) {
         // Create a GooseAI instance with the specified model options and logger
         const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
-        aiScorerOptions = { ai: gooseAI };
+        aiScorerOptions = { ai: gooseAI, defaultModelOptions: options.defaultModelOptions };
       } else {
         // Create default GooseAI with logger
         const gooseAI = new GooseAI(rootDir, {}, this.logger);

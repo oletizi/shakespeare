@@ -805,9 +805,11 @@ function parseGooseResponse(response) {
 var AIScorer = class {
   ai;
   logger;
+  defaultModelOptions;
   constructor(options = {}) {
     this.ai = options.ai ?? new GooseAI();
     this.logger = options.logger ?? new ShakespeareLogger();
+    this.defaultModelOptions = options.defaultModelOptions;
   }
   /**
    * Score content across all quality dimensions
@@ -823,12 +825,13 @@ var AIScorer = class {
     };
     const costBreakdown = {};
     let totalCost = 0;
+    const defaultModel = this.defaultModelOptions || { provider: "google", model: "gemini-1.5-flash" };
     const scoringStrategies = strategies || [
-      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
-      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+      { dimension: "readability", preferredModel: defaultModel },
+      { dimension: "seoScore", preferredModel: defaultModel },
+      { dimension: "technicalAccuracy", preferredModel: defaultModel },
+      { dimension: "engagement", preferredModel: defaultModel },
+      { dimension: "contentDepth", preferredModel: defaultModel }
     ];
     for (const strategy of scoringStrategies) {
       const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
@@ -906,12 +909,13 @@ var AIScorer = class {
     if (!("estimateCost" in this.ai) || typeof this.ai.estimateCost !== "function") {
       return 0;
     }
+    const defaultModel = this.defaultModelOptions || { provider: "google", model: "gemini-1.5-flash" };
     const defaultStrategies = strategies || [
-      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
-      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+      { dimension: "readability", preferredModel: defaultModel },
+      { dimension: "seoScore", preferredModel: defaultModel },
+      { dimension: "technicalAccuracy", preferredModel: defaultModel },
+      { dimension: "engagement", preferredModel: defaultModel },
+      { dimension: "contentDepth", preferredModel: defaultModel }
     ];
     let totalEstimatedCost = 0;
     for (const strategy of defaultStrategies) {
@@ -1228,7 +1232,7 @@ var Shakespeare = class _Shakespeare {
         aiScorerOptions = options.aiOptions;
       } else if (options.defaultModelOptions) {
         const gooseAI = new GooseAI(rootDir, options.defaultModelOptions, this.logger);
-        aiScorerOptions = { ai: gooseAI };
+        aiScorerOptions = { ai: gooseAI, defaultModelOptions: options.defaultModelOptions };
       } else {
         const gooseAI = new GooseAI(rootDir, {}, this.logger);
         aiScorerOptions = { ai: gooseAI };

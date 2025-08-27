@@ -35,6 +35,7 @@ export declare const IMPROVEMENT_PROMPT = "\nYou are a content improvement speci
 export interface AIScorerOptions {
     ai?: IAI;
     logger?: ShakespeareLogger;
+    defaultModelOptions?: AIModelOptions;
 }
 /**
  * AI scoring system implementation with cost optimization
@@ -42,6 +43,7 @@ export interface AIScorerOptions {
 export declare class AIScorer implements IContentScorer {
     private ai;
     private logger;
+    private defaultModelOptions?;
     constructor(options?: AIScorerOptions);
     /**
      * Score content across all quality dimensions
