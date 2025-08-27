@@ -671,21 +671,41 @@ var AIScorer = class {
   /**
    * Score content across all quality dimensions
    */
-  async scoreContent(content) {
+  /**
+   * Score content across all quality dimensions
+   * This is the single entry point for content scoring
+   */
+  async scoreContent(content, strategies) {
     const analysis = {
       scores: {},
       analysis: {}
     };
-    for (const [dimension, promptTemplate] of Object.entries(ANALYSIS_PROMPTS)) {
+    const costBreakdown = {};
+    let totalCost = 0;
+    const scoringStrategies = strategies || [
+      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
+      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
+      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
+    ];
+    for (const strategy of scoringStrategies) {
+      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
       const prompt = promptTemplate.replace("{content}", content);
-      const result = await this.scoreDimension(content, prompt);
-      analysis.scores[dimension] = result.score;
-      analysis.analysis[dimension] = {
-        reasoning: result.reasoning,
-        suggestions: result.suggestions || []
+      const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
+      analysis.scores[strategy.dimension] = result.response.score;
+      analysis.analysis[strategy.dimension] = {
+        reasoning: result.response.reasoning,
+        suggestions: result.response.suggestions || []
       };
+      costBreakdown[strategy.dimension] = result.costInfo;
+      totalCost += result.costInfo.totalCost;
     }
-    return analysis;
+    return {
+      analysis,
+      totalCost,
+      costBreakdown
+    };
   }
   /**
    * Score content for a specific dimension
@@ -705,108 +725,34 @@ var AIScorer = class {
   }
   /**
    * Generate improved content based on analysis
+   * This is the single entry point for content improvement
    */
-  async improveContent(content, analysis) {
-    const response = await this.improveContentWithCosts(content, analysis);
-    return response.content;
-  }
-  /**
-   * Enhanced scoring with cost tracking and model selection
-   */
-  async scoreContentWithCosts(content, strategies) {
-    const analysis = {
-      scores: {},
-      analysis: {}
-    };
-    const costBreakdown = {};
-    let totalCost = 0;
-    const defaultStrategies = strategies || [
-      { dimension: "readability", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "seoScore", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "technicalAccuracy", preferredModel: { provider: "groq", model: "llama-3.1-8b" } },
-      { dimension: "engagement", preferredModel: { provider: "google", model: "gemini-1.5-flash" } },
-      { dimension: "contentDepth", preferredModel: { provider: "groq", model: "llama-3.1-8b" } }
-    ];
-    for (const strategy of defaultStrategies) {
-      const promptTemplate = ANALYSIS_PROMPTS[strategy.dimension];
-      const prompt = promptTemplate.replace("{content}", content);
-      try {
-        const result = await this.scoreDimensionWithCost(prompt, strategy.preferredModel);
-        analysis.scores[strategy.dimension] = result.response.score;
-        analysis.analysis[strategy.dimension] = {
-          reasoning: result.response.reasoning,
-          suggestions: result.response.suggestions || []
-        };
-        costBreakdown[strategy.dimension] = result.costInfo;
-        totalCost += result.costInfo.totalCost;
-      } catch (error) {
-        console.error(`Error scoring ${strategy.dimension}:`, error);
-        analysis.scores[strategy.dimension] = 5;
-        analysis.analysis[strategy.dimension] = {
-          reasoning: "Error during scoring process",
-          suggestions: ["Retry scoring"]
-        };
-      }
-    }
-    return {
-      analysis,
-      totalCost,
-      costBreakdown
-    };
-  }
-  /**
-   * Enhanced content improvement with cost tracking
-   */
-  async improveContentWithCosts(content, analysis, options) {
+  async improveContent(content, analysis, options) {
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content);
-    const finalOptions = options;
-    try {
-      if ("promptWithOptions" in this.ai && typeof this.ai.promptWithOptions === "function") {
-        const response = await this.ai.promptWithOptions(prompt, finalOptions);
-        const sections = response.content.split("\n\n");
-        return {
-          content: sections[0] || content,
-          costInfo: response.costInfo
-        };
-      } else {
-        const responseText = await this.ai.prompt(prompt);
-        const sections = responseText.split("\n\n");
-        return {
-          content: sections[0] || content,
-          costInfo: {
-            provider: finalOptions?.provider || "unknown",
-            model: finalOptions?.model || "unknown",
-            inputTokens: Math.ceil(prompt.length / 4),
-            outputTokens: Math.ceil(responseText.length / 4),
-            totalCost: 0,
-            // Cannot calculate without enhanced AI
-            timestamp: (/* @__PURE__ */ new Date()).toISOString()
-          }
-        };
-      }
-    } catch (error) {
-      console.error("Error improving content:", error);
-      return {
-        content,
-        costInfo: {
-          provider: finalOptions?.provider || "unknown",
-          model: finalOptions?.model || "unknown",
-          inputTokens: 0,
-          outputTokens: 0,
-          totalCost: 0,
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      };
+    if (!("promptWithOptions" in this.ai) || typeof this.ai.promptWithOptions !== "function") {
+      throw new Error("AI implementation must support promptWithOptions method");
     }
+    const response = await this.ai.promptWithOptions(prompt, options);
+    const sections = response.content.split("\n\n");
+    const improvedContent = sections[0];
+    if (!improvedContent || improvedContent.trim().length === 0) {
+      throw new Error("AI returned empty improved content");
+    }
+    return {
+      content: improvedContent,
+      costInfo: response.costInfo
+    };
   }
+  // Remove scoreContentWithCosts - use scoreContent directly
+  // Remove improveContentWithCosts - use improveContent directly
   /**
    * Batch scoring for cost optimization
    */
   async scoreContentBatch(contentList, strategies) {
     const results = [];
     for (const content of contentList) {
-      const result = await this.scoreContentWithCosts(content, strategies);
+      const result = await this.scoreContent(content, strategies);
       results.push(result);
     }
     return results;
@@ -1383,7 +1329,8 @@ var Shakespeare = class _Shakespeare {
     for (const file of files) {
       if (!database.entries[file]) {
         const content = await this.scanner.readContent(file);
-        const analysis = await this.ai.scoreContent(content);
+        const scoringResult = await this.ai.scoreContent(content);
+        const analysis = scoringResult.analysis;
         const newEntry = {
           path: file,
           currentScores: analysis.scores,
@@ -1454,12 +1401,12 @@ var Shakespeare = class _Shakespeare {
     const analysis = await this.ai.scoreContent(content);
     const updatedEntry = {
       ...entry,
-      currentScores: analysis.scores,
+      currentScores: analysis.analysis.scores,
       lastReviewDate: (/* @__PURE__ */ new Date()).toISOString(),
-      status: this.determineStatus(analysis.scores),
+      status: this.determineStatus(analysis.analysis.scores),
       reviewHistory: [{
         date: (/* @__PURE__ */ new Date()).toISOString(),
-        scores: analysis.scores,
+        scores: analysis.analysis.scores,
         improvements: []
       }]
     };
@@ -1505,29 +1452,16 @@ var Shakespeare = class _Shakespeare {
     this.logger.debug(`\u{1F50D} Using absolute path from entry: ${absoluteFilePath}`);
     const content = await this.scanner.readContent(absoluteFilePath);
     const analysis = await this.ai.scoreContent(content);
-    let improvedContent;
-    try {
-      this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
-      const improveOptions = await this.getWorkflowModelOptions("improve");
-      if ("improveContentWithCosts" in this.ai && typeof this.ai.improveContentWithCosts === "function") {
-        const response = await this.ai.improveContentWithCosts(content, analysis, improveOptions);
-        improvedContent = response.content;
-      } else {
-        improvedContent = await this.ai.improveContent(content, analysis);
-      }
-      this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
-      if (!improvedContent || improvedContent.trim().length === 0) {
-        throw new Error("AI returned empty improved content");
-      }
-      if (improvedContent === content) {
-        this.logger.warn("\u26A0\uFE0F  Warning: Improved content is identical to original");
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`\u274C Content improvement failed: ${errorMessage}`);
-      throw error;
+    this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
+    const improveOptions = await this.getWorkflowModelOptions("improve");
+    const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+    const improvedContent = response.content;
+    this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
+    if (improvedContent === content) {
+      this.logger.warn("\u26A0\uFE0F  Warning: Improved content is identical to original");
     }
-    const newAnalysis = await this.ai.scoreContent(improvedContent);
+    const newScoringResult = await this.ai.scoreContent(improvedContent);
+    const newAnalysis = newScoringResult.analysis;
     try {
       if (!path3.isAbsolute(absoluteFilePath)) {
         throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);

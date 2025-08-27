@@ -149,12 +149,9 @@ export interface EnhancedAIContentAnalysis {
  * Interface for AI content scoring with cost optimization
  */
 export interface IContentScorer {
-    /** Original methods for backward compatibility */
-    scoreContent(content: string): Promise<AIContentAnalysis>;
-    improveContent(content: string, analysis: AIContentAnalysis): Promise<string>;
-    /** Enhanced methods with cost tracking and model selection */
-    scoreContentWithCosts(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis>;
-    improveContentWithCosts(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
+    /** Core methods - single implementation path */
+    scoreContent(content: string, strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis>;
+    improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
     /** Batch operations for cost optimization */
     scoreContentBatch(contentList: string[], strategies?: ScoringStrategy[]): Promise<EnhancedAIContentAnalysis[]>;
     /** Cost estimation for operations */

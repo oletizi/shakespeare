@@ -180,7 +180,8 @@ export class Shakespeare {
       if (!database.entries[file]) {
         // Initialize new content entry
         const content = await this.scanner.readContent(file);
-        const analysis = await this.ai.scoreContent(content);
+        const scoringResult = await this.ai.scoreContent(content);
+        const analysis = scoringResult.analysis;
 
         const newEntry: ContentEntry = {
           path: file,
@@ -273,12 +274,12 @@ export class Shakespeare {
     // Update entry with scores and proper status
     const updatedEntry: ContentEntry = {
       ...entry,
-      currentScores: analysis.scores,
+      currentScores: analysis.analysis.scores,
       lastReviewDate: new Date().toISOString(),
-      status: this.determineStatus(analysis.scores),
+      status: this.determineStatus(analysis.analysis.scores),
       reviewHistory: [{
         date: new Date().toISOString(),
-        scores: analysis.scores,
+        scores: analysis.analysis.scores,
         improvements: []
       }]
     };
@@ -349,41 +350,26 @@ export class Shakespeare {
     // Get current analysis
     const analysis = await this.ai.scoreContent(content);
     
-    // Generate improved content with better error handling
-    let improvedContent: string;
-    try {
-      this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
-      
-      // Get workflow-specific model options for improvement
-      const improveOptions = await this.getWorkflowModelOptions('improve');
-      
-      if ('improveContentWithCosts' in this.ai && typeof this.ai.improveContentWithCosts === 'function') {
-        const response = await (this.ai as any).improveContentWithCosts(content, analysis, improveOptions);
-        improvedContent = response.content;
-      } else {
-        // Fallback for basic AI implementations
-        improvedContent = await this.ai.improveContent(content, analysis);
-      }
-      
-      this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
-      
-      // Validate that we actually got improved content
-      if (!improvedContent || improvedContent.trim().length === 0) {
-        throw new Error('AI returned empty improved content');
-      }
-      
-      if (improvedContent === content) {
-        this.logger.warn('⚠️  Warning: Improved content is identical to original');
-      }
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`❌ Content improvement failed: ${errorMessage}`);
-      throw error; // Re-throw to prevent silent failures
+    // Generate improved content - single code path, no fallbacks
+    this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
+    
+    // Get workflow-specific model options for improvement
+    const improveOptions = await this.getWorkflowModelOptions('improve');
+    
+    // Call the unified improveContent method that returns AIResponse
+    const response = await this.ai.improveContent(content, analysis.analysis, improveOptions);
+    const improvedContent = response.content;
+    
+    this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
+    
+    // Validation is now handled inside ai.improveContent(), but we can still check for identical content
+    if (improvedContent === content) {
+      this.logger.warn('⚠️  Warning: Improved content is identical to original');
     }
     
     // Score the improved content
-    const newAnalysis = await this.ai.scoreContent(improvedContent);
+    const newScoringResult = await this.ai.scoreContent(improvedContent);
+    const newAnalysis = newScoringResult.analysis;
     
     // Update the content file
     try {
