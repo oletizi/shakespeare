@@ -1,7 +1,7 @@
 import { GooseAI } from '@/utils/goose';
 import { QualityDimensions } from '@/types/content';
 import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo } from '@/types/interfaces';
-import { logError } from '@/utils/logger';
+import { ShakespeareLogger } from '@/utils/logger';
 
 export interface AIScoreResponse {
   score: number;
@@ -194,6 +194,7 @@ function parseGooseResponse(response: string): AIScoreResponse {
  */
 export interface AIScorerOptions {
   ai?: IAI;
+  logger?: ShakespeareLogger;
 }
 
 /**
@@ -201,9 +202,11 @@ export interface AIScorerOptions {
  */
 export class AIScorer implements IContentScorer {
   private ai: IAI;
+  private logger: ShakespeareLogger;
 
   constructor(options: AIScorerOptions = {}) {
     this.ai = options.ai ?? new GooseAI();
+    this.logger = options.logger ?? new ShakespeareLogger();
   }
 
   /**
@@ -251,7 +254,7 @@ export class AIScorer implements IContentScorer {
         totalCost += result.costInfo.totalCost;
         
       } catch (error) {
-        logError(error, `Error scoring ${strategy.dimension}`);
+        this.logger.logError(`Error scoring ${strategy.dimension}`, error);
         // Fail loudly - don't hide errors with default values
         throw new Error(`Failed to score ${strategy.dimension}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -272,7 +275,7 @@ export class AIScorer implements IContentScorer {
       const response = await this.ai.prompt(prompt);
       return parseGooseResponse(response);
     } catch (error) {
-      logError(error, 'Error scoring content');
+      this.logger.logError('Error scoring content', error);
       // Fail loudly - don't hide errors with default values
       throw new Error(`Content scoring failed: ${error instanceof Error ? error.message : String(error)}`);
     }

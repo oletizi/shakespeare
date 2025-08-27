@@ -4,11 +4,6 @@ import winston from 'winston';
  */
 export declare function formatErrorForConsole(error: unknown, operation?: string): string;
 /**
- * Centralized error logging - handles both console (concise) and file (verbose) logging
- * This should be the single entry point for all error logging in the application
- */
-export declare function logError(error: unknown, operation?: string, logger?: winston.Logger, logFilePath?: string): void;
-/**
  * Structured logger for Shakespeare with configurable verbosity levels
  */
 export declare class ShakespeareLogger {
@@ -53,9 +48,10 @@ export declare class ShakespeareLogger {
      */
     error(message: string, meta?: any): void;
     /**
-     * Enhanced error logging with full context and user guidance
+     * Centralized error logging - handles both console (concise) and file (verbose) logging
+     * This should be the single entry point for all error logging in the application
      */
-    logError(operation: string, error: Error | string, context?: any): void;
+    logError(operation: string, error: unknown, context?: any): void;
     /**
      * Get the path to the error log file
      */

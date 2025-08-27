@@ -8,11 +8,12 @@
 
 import { Shakespeare } from '../index.js';
 import path from 'path';
-import { logError } from '@/utils/logger';
+import { ShakespeareLogger } from '@/utils/logger';
 
 async function main() {
   const rootDir = process.cwd();
   const dbPath = path.join(rootDir, '.shakespeare', 'content-db.json');
+  const logger = new ShakespeareLogger(rootDir);
   const targetPath = process.argv[2];
 
   if (!targetPath) {
@@ -33,7 +34,7 @@ async function main() {
         });
       }
     } catch (error) {
-      logError(error, 'Error loading content database');
+      logger.logError('Error loading content database', error);
     }
     
     process.exit(1);
@@ -82,7 +83,7 @@ async function main() {
     console.log(`\n✅ Content review complete.`);
     
   } catch (error) {
-    logError(error, 'Error reviewing content');
+    logger.logError('Error reviewing content', error);
     process.exit(1);
   }
 }

@@ -223,32 +223,6 @@ function formatErrorForConsole(error, operation) {
   }
   return errorMessage;
 }
-function logError(error, operation, logger, logFilePath) {
-  const conciseError = formatErrorForConsole(error, operation);
-  console.error(`\u274C ${conciseError}`);
-  if (logger) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : void 0;
-    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-    const fullContext = {
-      timestamp,
-      operation: operation || "Unknown operation",
-      error: errorMessage,
-      stack: errorStack,
-      process: {
-        cwd: process.cwd(),
-        argv: process.argv,
-        version: process.version,
-        platform: process.platform
-      }
-    };
-    logger.error("Operation failed", fullContext);
-  }
-  if (logFilePath && existsSync(logFilePath)) {
-    console.error(`\u{1F4CB} Full error details logged to: ${logFilePath}`);
-    console.error(`\u{1F4A1} Run: tail -f "${logFilePath}" to monitor errors`);
-  }
-}
 var ShakespeareLogger = class {
   logger;
   verboseEnabled = false;
@@ -388,19 +362,39 @@ var ShakespeareLogger = class {
     this.logger.error(`\u274C ${message}`, meta);
   }
   /**
-   * Enhanced error logging with full context and user guidance
+   * Centralized error logging - handles both console (concise) and file (verbose) logging
+   * This should be the single entry point for all error logging in the application
    */
   logError(operation, error, context) {
+    let errorToLog = error;
     if (context) {
-      const enhancedError = error instanceof Error ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`) : `${error} (Context: ${JSON.stringify(context)})`;
-      console.error();
-      logError(enhancedError, operation, this.logger, this.errorLogPath);
-      console.error();
-    } else {
-      console.error();
-      logError(error, operation, this.logger, this.errorLogPath);
-      console.error();
+      errorToLog = error instanceof Error ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`) : `${error} (Context: ${JSON.stringify(context)})`;
     }
+    const conciseError = formatErrorForConsole(errorToLog, operation);
+    console.error();
+    console.error(`\u274C ${conciseError}`);
+    const errorMessage = errorToLog instanceof Error ? errorToLog.message : String(errorToLog);
+    const errorStack = errorToLog instanceof Error ? errorToLog.stack : void 0;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const fullContext = {
+      timestamp,
+      operation: operation || "Unknown operation",
+      error: errorMessage,
+      stack: errorStack,
+      process: {
+        cwd: process.cwd(),
+        argv: process.argv,
+        version: process.version,
+        platform: process.platform
+      }
+    };
+    this.logger.error("Operation failed", fullContext);
+    const hasFileTransport = this.logger.transports.some((t) => t instanceof winston.transports.File);
+    if (hasFileTransport && existsSync(this.errorLogPath)) {
+      console.error(`\u{1F4CB} Full error details logged to: ${this.errorLogPath}`);
+      console.error(`\u{1F4A1} Run: tail -f "${this.errorLogPath}" to monitor errors`);
+    }
+    console.error();
   }
   /**
    * Get the path to the error log file
@@ -556,6 +550,7 @@ var GooseAI = class {
             provider: finalOptions.provider,
             model: finalOptions.model
           });
+          const errorMsg = `Goose failed with exit code ${code}`;
           const errorContext = {
             exitCode: code,
             stderr: error || "(empty)",
@@ -566,7 +561,6 @@ var GooseAI = class {
             modelOptions: finalOptions,
             duration
           };
-          const errorMsg = `Goose failed with exit code ${code}`;
           this.logger.logError("Goose AI request", errorMsg, errorContext);
           reject(new Error(errorMsg));
         } else {
@@ -796,8 +790,10 @@ function parseGooseResponse(response) {
 }
 var AIScorer = class {
   ai;
+  logger;
   constructor(options = {}) {
     this.ai = options.ai ?? new GooseAI();
+    this.logger = options.logger ?? new ShakespeareLogger();
   }
   /**
    * Score content across all quality dimensions
@@ -833,7 +829,7 @@ var AIScorer = class {
         costBreakdown[strategy.dimension] = result.costInfo;
         totalCost += result.costInfo.totalCost;
       } catch (error) {
-        logError(error, `Error scoring ${strategy.dimension}`);
+        this.logger.logError(`Error scoring ${strategy.dimension}`, error);
         throw new Error(`Failed to score ${strategy.dimension}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -851,7 +847,7 @@ var AIScorer = class {
       const response = await this.ai.prompt(prompt);
       return parseGooseResponse(response);
     } catch (error) {
-      logError(error, "Error scoring content");
+      this.logger.logError("Error scoring content", error);
       throw new Error(`Content scoring failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

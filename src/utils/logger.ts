@@ -35,43 +35,6 @@ export function formatErrorForConsole(error: unknown, operation?: string): strin
   return errorMessage;
 }
 
-/**
- * Centralized error logging - handles both console (concise) and file (verbose) logging
- * This should be the single entry point for all error logging in the application
- */
-export function logError(error: unknown, operation?: string, logger?: winston.Logger, logFilePath?: string): void {
-  // Always log concise error to console
-  const conciseError = formatErrorForConsole(error, operation);
-  console.error(`❌ ${conciseError}`);
-  
-  // Log full error details to file if logger is available
-  if (logger) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    const timestamp = new Date().toISOString();
-    
-    const fullContext = {
-      timestamp,
-      operation: operation || 'Unknown operation',
-      error: errorMessage,
-      stack: errorStack,
-      process: {
-        cwd: process.cwd(),
-        argv: process.argv,
-        version: process.version,
-        platform: process.platform
-      }
-    };
-    
-    logger.error('Operation failed', fullContext);
-  }
-  
-  // Show file reference if available
-  if (logFilePath && existsSync(logFilePath)) {
-    console.error(`📋 Full error details logged to: ${logFilePath}`);
-    console.error(`💡 Run: tail -f "${logFilePath}" to monitor errors`);
-  }
-}
 
 /**
  * Structured logger for Shakespeare with configurable verbosity levels
@@ -242,23 +205,50 @@ export class ShakespeareLogger {
   }
 
   /**
-   * Enhanced error logging with full context and user guidance
+   * Centralized error logging - handles both console (concise) and file (verbose) logging
+   * This should be the single entry point for all error logging in the application
    */
-  logError(operation: string, error: Error | string, context?: any): void {
-    // Add extra context if provided
+  logError(operation: string, error: unknown, context?: any): void {
+    // Create the error object to log
+    let errorToLog = error;
     if (context) {
-      const enhancedError = error instanceof Error 
+      errorToLog = error instanceof Error 
         ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`)
         : `${error} (Context: ${JSON.stringify(context)})`;
-      
-      console.error(); // Add newline for spacing
-      logError(enhancedError, operation, this.logger, this.errorLogPath);
-      console.error(); // Add newline for spacing
-    } else {
-      console.error(); // Add newline for spacing
-      logError(error, operation, this.logger, this.errorLogPath);
-      console.error(); // Add newline for spacing
     }
+
+    // Always log concise error to console
+    const conciseError = formatErrorForConsole(errorToLog, operation);
+    console.error(); // Add newline for spacing
+    console.error(`❌ ${conciseError}`);
+    
+    // Log full error details to file
+    const errorMessage = errorToLog instanceof Error ? errorToLog.message : String(errorToLog);
+    const errorStack = errorToLog instanceof Error ? errorToLog.stack : undefined;
+    const timestamp = new Date().toISOString();
+    
+    const fullContext = {
+      timestamp,
+      operation: operation || 'Unknown operation',
+      error: errorMessage,
+      stack: errorStack,
+      process: {
+        cwd: process.cwd(),
+        argv: process.argv,
+        version: process.version,
+        platform: process.platform
+      }
+    };
+    
+    this.logger.error('Operation failed', fullContext);
+    
+    // Show file reference if available
+    const hasFileTransport = this.logger.transports.some(t => t instanceof winston.transports.File);
+    if (hasFileTransport && existsSync(this.errorLogPath)) {
+      console.error(`📋 Full error details logged to: ${this.errorLogPath}`);
+      console.error(`💡 Run: tail -f "${this.errorLogPath}" to monitor errors`);
+    }
+    console.error(); // Add newline for spacing
   }
 
   /**

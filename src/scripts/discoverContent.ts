@@ -9,11 +9,12 @@
 
 import { Shakespeare } from '../index.js';
 import path from 'path';
-import { logError } from '@/utils/logger';
+import { ShakespeareLogger } from '@/utils/logger';
 
 async function main() {
   const rootDir = process.cwd();
   const dbPath = path.join(rootDir, '.shakespeare', 'content-db.json');
+  const logger = new ShakespeareLogger(rootDir);
 
   try {
     console.log('🔍 Discovering content...\n');
@@ -55,7 +56,7 @@ async function main() {
     console.log(`   ${dbPath}`);
     
   } catch (error) {
-    logError(error, 'Error discovering content');
+    logger.logError('Error discovering content', error);
     process.exit(1);
   }
 }

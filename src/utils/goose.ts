@@ -127,7 +127,9 @@ export class GooseAI implements IAI {
             model: finalOptions.model 
           });
           
-          // Use enhanced error logging for better diagnostics
+          const errorMsg = `Goose failed with exit code ${code}`;
+          
+          // Enhanced error context for logging
           const errorContext = {
             exitCode: code,
             stderr: error || '(empty)',
@@ -139,8 +141,9 @@ export class GooseAI implements IAI {
             duration: duration
           };
           
-          const errorMsg = `Goose failed with exit code ${code}`;
+          // Use centralized error logging - handles both console (concise) and file (verbose)
           this.logger.logError('Goose AI request', errorMsg, errorContext);
+          
           reject(new Error(errorMsg));
         } else {
           const content = output.trim();
