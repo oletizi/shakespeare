@@ -99,7 +99,7 @@ export declare class Shakespeare {
     /**
      * Improve content at the specified path
      */
-    improveContent(path: string): Promise<void>;
+    improveContent(filePath: string): Promise<void>;
     /**
      * Determine content status based on scores
      */

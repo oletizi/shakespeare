@@ -133,8 +133,14 @@ async function main() {
         break;
         
       case 'improve':
-        console.log('🚀 Running content improvement...');
-        await shakespeare.improveWorst();
+        const improvePath = process.argv[3];
+        if (improvePath) {
+          console.log(`🚀 Running content improvement for: ${improvePath}...`);
+          await shakespeare.improveContent(improvePath);
+        } else {
+          console.log('🚀 Running content improvement...');
+          await shakespeare.improveWorst();
+        }
         break;
         
       case 'batch':

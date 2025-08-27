@@ -1499,13 +1499,23 @@ var Shakespeare = class _Shakespeare {
   /**
    * Improve content at the specified path
    */
-  async improveContent(path4) {
+  async improveContent(filePath) {
+    await this._db.load();
     const database = this._db.getData();
-    const entry = database.entries[path4];
+    this.logger.debug(`\u{1F50D} Looking for entry with path: ${filePath}`);
+    this.logger.debug(`\u{1F50D} Available database entries: ${Object.keys(database.entries).join(", ")}`);
+    let entry = database.entries[filePath];
     if (!entry) {
-      throw new Error(`No content found at path: ${path4}`);
+      const absolutePath = path3.resolve(this.rootDir, filePath);
+      this.logger.debug(`\u{1F50D} Trying absolute path: ${absolutePath}`);
+      entry = database.entries[absolutePath];
     }
-    const content = await this.scanner.readContent(path4);
+    if (!entry) {
+      throw new Error(`No content found at path: ${filePath}. Available paths: ${Object.keys(database.entries).join(", ")}`);
+    }
+    const absoluteFilePath = entry.path;
+    this.logger.debug(`\u{1F50D} Using absolute path from entry: ${absoluteFilePath}`);
+    const content = await this.scanner.readContent(absoluteFilePath);
     const analysis = await this.ai.scoreContent(content);
     let improvedContent;
     try {
@@ -1531,16 +1541,24 @@ var Shakespeare = class _Shakespeare {
     }
     const newAnalysis = await this.ai.scoreContent(improvedContent);
     try {
-      await fs3.writeFile(path4, improvedContent, "utf-8");
-      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${path4}`);
+      if (!path3.isAbsolute(absoluteFilePath)) {
+        throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
+      }
+      this.logger.debug(`\u{1F50D} Writing improved content to: ${absoluteFilePath}`);
+      await fs3.writeFile(absoluteFilePath, improvedContent, "utf-8");
+      this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${absoluteFilePath}`);
     } catch (writeError) {
       const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
       this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
       throw writeError;
     }
-    await this._db.updateEntry(path4, (entry2) => {
+    const databaseKey = Object.keys(database.entries).find((key) => database.entries[key] === entry);
+    if (!databaseKey) {
+      throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
+    }
+    await this._db.updateEntry(databaseKey, (entry2) => {
       if (!entry2) {
-        throw new Error(`Entry not found for path: ${path4}`);
+        throw new Error(`Entry not found for path: ${databaseKey}`);
       }
       return {
         ...entry2,
@@ -2608,8 +2626,14 @@ async function main() {
         await shakespeare.reviewAll();
         break;
       case "improve":
-        console.log("\u{1F680} Running content improvement...");
-        await shakespeare.improveWorst();
+        const improvePath = process.argv[3];
+        if (improvePath) {
+          console.log(`\u{1F680} Running content improvement for: ${improvePath}...`);
+          await shakespeare.improveContent(improvePath);
+        } else {
+          console.log("\u{1F680} Running content improvement...");
+          await shakespeare.improveWorst();
+        }
         break;
       case "batch":
         const batchSubcommand = process.argv[3];
