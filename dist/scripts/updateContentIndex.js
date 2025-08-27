@@ -654,6 +654,225 @@ var GooseAI = class {
   }
 };
 
+// src/utils/uuid.ts
+function generateId() {
+  return `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// src/utils/chunker.ts
+var ContentChunker = class {
+  logger;
+  config;
+  constructor(config, logger) {
+    this.logger = logger ?? new ShakespeareLogger();
+    this.config = {
+      maxChunkSize: 2e4,
+      // 20K chars - safe for most AI models
+      minChunkSize: 5e3,
+      // 5K chars minimum
+      splitOnHeaders: true,
+      headerLevels: [1, 2, 3],
+      // H1, H2, H3
+      overlapLines: 2,
+      ...config
+    };
+  }
+  /**
+   * Split content into chunks based on headers and size limits
+   */
+  chunkByHeaders(content) {
+    const lines = content.split("\n");
+    const chunks = [];
+    let currentChunk = [];
+    let currentStartLine = 0;
+    let currentHeaders = [];
+    let frontmatter = this.extractFrontmatter(content);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const isHeader = this.isMarkdownHeader(line);
+      const headerLevel = this.getHeaderLevel(line);
+      const shouldSplit = this.shouldStartNewChunk(
+        currentChunk,
+        line,
+        isHeader,
+        headerLevel
+      );
+      if (shouldSplit && currentChunk.length > 0) {
+        const chunk = this.createChunk(
+          currentChunk,
+          currentStartLine,
+          i - 1,
+          currentHeaders,
+          frontmatter,
+          chunks.length === 0
+          // isFirst
+        );
+        chunks.push(chunk);
+        const overlapStart = Math.max(0, i - this.config.overlapLines);
+        currentChunk = lines.slice(overlapStart, i + 1);
+        currentStartLine = overlapStart;
+        currentHeaders = isHeader ? [line.trim()] : [];
+      } else {
+        currentChunk.push(line);
+        if (isHeader) {
+          currentHeaders.push(line.trim());
+        }
+      }
+    }
+    if (currentChunk.length > 0) {
+      const chunk = this.createChunk(
+        currentChunk,
+        currentStartLine,
+        lines.length - 1,
+        currentHeaders,
+        frontmatter,
+        chunks.length === 0
+        // isFirst
+      );
+      chunks.push(chunk);
+    }
+    if (chunks.length > 0) {
+      chunks[chunks.length - 1].isLast = true;
+    }
+    this.logger.info(`Content chunked into ${chunks.length} parts`, {
+      originalLength: content.length,
+      chunkSizes: chunks.map((c) => c.characterCount),
+      operation: "content_chunking"
+    });
+    return chunks;
+  }
+  /**
+   * Reassemble improved chunks back into complete content
+   */
+  reassembleChunks(improvedChunks) {
+    if (improvedChunks.length === 0) {
+      return "";
+    }
+    if (improvedChunks.length === 1) {
+      return improvedChunks[0].content;
+    }
+    let reassembled = "";
+    let frontmatterProcessed = false;
+    for (let i = 0; i < improvedChunks.length; i++) {
+      const chunk = improvedChunks[i];
+      let chunkContent = chunk.content;
+      if (chunk.preserveFrontmatter && !frontmatterProcessed) {
+        frontmatterProcessed = true;
+      } else if (chunk.preserveFrontmatter && frontmatterProcessed) {
+        chunkContent = this.removeFrontmatter(chunkContent);
+      }
+      if (i > 0) {
+        chunkContent = this.removeOverlapWithPrevious(
+          chunkContent,
+          improvedChunks[i - 1].content,
+          this.config.overlapLines
+        );
+      }
+      reassembled += chunkContent;
+      if (i < improvedChunks.length - 1 && !chunkContent.endsWith("\n")) {
+        reassembled += "\n";
+      }
+    }
+    this.logger.info(`Reassembled ${improvedChunks.length} chunks`, {
+      totalLength: reassembled.length,
+      chunkLengths: improvedChunks.map((c) => c.characterCount),
+      operation: "content_reassembly"
+    });
+    return reassembled;
+  }
+  /**
+   * Validate that chunks don't have gaps or duplications
+   */
+  validateChunkBoundaries(chunks) {
+    if (chunks.length <= 1) {
+      return true;
+    }
+    for (let i = 1; i < chunks.length; i++) {
+      const prevChunk = chunks[i - 1];
+      const currentChunk = chunks[i];
+      const gap = currentChunk.startLine - prevChunk.endLine;
+      if (gap > this.config.overlapLines + 1) {
+        this.logger.warn(`Large gap detected between chunks ${i - 1} and ${i}`, {
+          gap,
+          prevEnd: prevChunk.endLine,
+          currentStart: currentChunk.startLine,
+          operation: "chunk_validation"
+        });
+        return false;
+      }
+    }
+    return true;
+  }
+  /**
+   * Determine if content should be chunked based on size
+   */
+  shouldChunkContent(content) {
+    return content.length > this.config.maxChunkSize;
+  }
+  // Private helper methods
+  createChunk(lines, startLine, endLine, headers, frontmatter, isFirst) {
+    let content = lines.join("\n");
+    if (isFirst && frontmatter) {
+      content = frontmatter + "\n\n" + content;
+    }
+    return {
+      id: generateId(),
+      content,
+      startLine,
+      endLine,
+      headers,
+      preserveFrontmatter: isFirst && frontmatter !== null,
+      characterCount: content.length,
+      isFirst,
+      isLast: false
+      // Will be set later
+    };
+  }
+  isMarkdownHeader(line) {
+    return /^#{1,6}\s+/.test(line.trim());
+  }
+  getHeaderLevel(line) {
+    const match = line.trim().match(/^(#{1,6})\s+/);
+    return match ? match[1].length : 0;
+  }
+  shouldStartNewChunk(currentChunk, line, isHeader, headerLevel) {
+    const currentSize = currentChunk.join("\n").length;
+    if (currentSize < this.config.minChunkSize) {
+      return false;
+    }
+    if (currentSize > this.config.maxChunkSize) {
+      return true;
+    }
+    if (this.config.splitOnHeaders && isHeader && this.config.headerLevels.includes(headerLevel)) {
+      return true;
+    }
+    return false;
+  }
+  extractFrontmatter(content) {
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+    return frontmatterMatch ? frontmatterMatch[0] : null;
+  }
+  removeFrontmatter(content) {
+    return content.replace(/^---\n[\s\S]*?\n---\n/, "");
+  }
+  removeOverlapWithPrevious(currentContent, previousContent, overlapLines) {
+    const currentLines = currentContent.split("\n");
+    const previousLines = previousContent.split("\n");
+    let commonLines = 0;
+    const checkLines = Math.min(overlapLines * 2, currentLines.length, previousLines.length);
+    for (let i = 0; i < checkLines; i++) {
+      const currentLine = currentLines[i];
+      const previousLine = previousLines[previousLines.length - checkLines + i];
+      if (currentLine === previousLine) {
+        commonLines++;
+      } else {
+        break;
+      }
+    }
+    return currentLines.slice(commonLines).join("\n");
+  }
+};
+
 // src/utils/ai.ts
 var ANALYSIS_PROMPTS = {
   readability: `
@@ -859,10 +1078,12 @@ var AIScorer = class {
   ai;
   logger;
   defaultModelOptions;
+  chunker;
   constructor(options = {}) {
     this.ai = options.ai ?? new GooseAI();
     this.logger = options.logger ?? new ShakespeareLogger();
     this.defaultModelOptions = options.defaultModelOptions;
+    this.chunker = new ContentChunker({}, this.logger);
   }
   /**
    * Score content across all quality dimensions
@@ -936,18 +1157,107 @@ var AIScorer = class {
     if (!modelOptions || modelOptions.length === 0) {
       throw new Error("At least one model option must be provided");
     }
-    const executionId = `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    if (this.chunker.shouldChunkContent(content)) {
+      return this.improveContentWithChunking(content, analysis, modelOptions);
+    }
+    return this.improveSingleContent(content, analysis, modelOptions);
+  }
+  /**
+   * Improve large content using chunking approach
+   */
+  async improveContentWithChunking(content, analysis, modelOptions) {
+    const executionId = `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-    this.logger.info(`[${executionId}] Starting content improvement at ${timestamp}`, {
+    this.logger.info(`[${executionId}] Starting chunked content improvement at ${timestamp}`, {
       executionId,
+      originalContentLength: content.length,
+      timestamp,
+      operation: "improve_content_chunked_start"
+    });
+    const chunks = this.chunker.chunkByHeaders(content);
+    this.logger.info(`[${executionId}] Content split into ${chunks.length} chunks`, {
+      executionId,
+      chunkCount: chunks.length,
+      chunkSizes: chunks.map((c) => c.characterCount),
+      operation: "improve_content_chunks_created"
+    });
+    const improvedChunks = [];
+    let totalCost = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      this.logger.info(`[${executionId}] Processing chunk ${i + 1}/${chunks.length}`, {
+        executionId,
+        chunkIndex: i,
+        chunkId: chunk.id,
+        chunkSize: chunk.characterCount,
+        operation: "improve_content_chunk_start"
+      });
+      try {
+        const chunkResponse = await this.improveSingleContent(chunk.content, analysis, modelOptions, `${executionId}-chunk-${i}`);
+        const improvedChunk = {
+          ...chunk,
+          content: chunkResponse.content
+        };
+        improvedChunks.push(improvedChunk);
+        totalCost += chunkResponse.costInfo.totalCost;
+        this.logger.info(`[${executionId}] Chunk ${i + 1} improved successfully`, {
+          executionId,
+          chunkIndex: i,
+          originalLength: chunk.characterCount,
+          improvedLength: chunkResponse.content.length,
+          lengthRatio: chunkResponse.content.length / chunk.characterCount,
+          operation: "improve_content_chunk_completed"
+        });
+      } catch (error) {
+        this.logger.error(`[${executionId}] Failed to improve chunk ${i + 1}`, {
+          executionId,
+          chunkIndex: i,
+          error: error instanceof Error ? error.message : String(error),
+          operation: "improve_content_chunk_failed"
+        });
+        throw new Error(`Failed to improve chunk ${i + 1}/${chunks.length}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const reassembledContent = this.chunker.reassembleChunks(improvedChunks);
+    this.logger.info(`[${executionId}] Chunked content improvement completed`, {
+      executionId,
+      originalLength: content.length,
+      finalLength: reassembledContent.length,
+      lengthRatio: reassembledContent.length / content.length,
+      chunkCount: chunks.length,
+      totalCost,
+      operation: "improve_content_chunked_completed"
+    });
+    this.validateImprovedContentLength(reassembledContent, content, executionId);
+    return {
+      content: reassembledContent,
+      costInfo: {
+        provider: modelOptions[0]?.provider || "unknown",
+        model: modelOptions[0]?.model || "unknown",
+        inputTokens: Math.round(content.length / 4),
+        // Rough estimate
+        outputTokens: Math.round(reassembledContent.length / 4),
+        totalCost,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    };
+  }
+  /**
+   * Improve content without chunking (original method renamed)
+   */
+  async improveSingleContent(content, analysis, modelOptions, executionId) {
+    const finalExecutionId = executionId || `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    this.logger.info(`[${finalExecutionId}] Starting content improvement at ${timestamp}`, {
+      executionId: finalExecutionId,
       originalContentLength: content.length,
       timestamp,
       operation: "improve_content_start"
     });
     const analysisStr = JSON.stringify(analysis, null, 2);
     const prompt = IMPROVEMENT_PROMPT.replace("{analysis}", analysisStr).replace("{content}", content).replace("{contentLength}", content.length.toString());
-    this.logger.info(`[${executionId}] Full improvement request`, {
-      executionId,
+    this.logger.info(`[${finalExecutionId}] Full improvement request`, {
+      executionId: finalExecutionId,
       promptLength: prompt.length,
       fullPrompt: prompt,
       originalContent: content,
@@ -963,7 +1273,7 @@ var AIScorer = class {
       const isFirstModel = i === 0;
       const hasMoreModels = i < modelOptions.length - 1;
       try {
-        this.logger.info(`[${executionId}] Sending AI request${isFirstModel ? "" : ` (fallback ${i})`}`, {
+        this.logger.info(`[${finalExecutionId}] Sending AI request${isFirstModel ? "" : ` (fallback ${i})`}`, {
           executionId,
           options: currentModel,
           modelIndex: i,
@@ -971,7 +1281,7 @@ var AIScorer = class {
           operation: isFirstModel ? "improve_content_ai_request" : "improve_content_fallback_request"
         });
         const response = await this.ai.promptWithOptions(prompt, currentModel);
-        this.logger.info(`[${executionId}] Received AI response${isFirstModel ? "" : ` (fallback succeeded)`}`, {
+        this.logger.info(`[${finalExecutionId}] Received AI response${isFirstModel ? "" : ` (fallback succeeded)`}`, {
           executionId,
           responseLength: response.content.length,
           fullResponse: response.content,
@@ -982,12 +1292,12 @@ var AIScorer = class {
           console.warn(`\u2705 Fallback successful! Used ${currentModel.provider}/${currentModel.model}
 `);
         }
-        return this.processAIResponse(response, executionId, content);
+        return this.processAIResponse(response, finalExecutionId, content);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         const errorMessage = lastError.message;
         const isRuntimeError = errorMessage.startsWith("USAGE_CAP:") || errorMessage.startsWith("RUNTIME_ERROR:");
-        this.logger.error(`[${executionId}] Model ${i + 1}/${modelOptions.length} failed`, {
+        this.logger.error(`[${finalExecutionId}] Model ${i + 1}/${modelOptions.length} failed`, {
           executionId,
           modelIndex: i,
           model: currentModel,
@@ -1014,6 +1324,42 @@ var AIScorer = class {
       }
     }
     throw new Error(`All ${modelOptions.length} model(s) failed. Last error: ${lastError?.message || "Unknown error"}`);
+  }
+  /**
+   * Validate improved content length
+   */
+  validateImprovedContentLength(improvedContent, originalContent, executionId) {
+    const originalLength = originalContent.length;
+    const finalLength = improvedContent.length;
+    const lengthRatio = finalLength / originalLength;
+    if (finalLength < originalLength * 0.7) {
+      this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: "improve_content_validation_error"
+      });
+      throw new Error(`AI returned suspiciously short content (${finalLength} chars vs original ${originalLength} chars). Content should be 70-120% of original length.`);
+    } else if (finalLength < originalLength * 0.85) {
+      this.logger.warn(`[${executionId}] Content shorter than expected but acceptable`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: "improve_content_validation_warning"
+      });
+      console.warn(`\u26A0\uFE0F  Improved content is shorter than expected (${Math.round(lengthRatio * 100)}% of original). This may indicate over-condensation.`);
+    } else if (finalLength > originalLength * 1.2) {
+      this.logger.warn(`[${executionId}] Content longer than expected`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: "improve_content_validation_info"
+      });
+      console.log(`\u2139\uFE0F  Improved content is longer than original (${Math.round(lengthRatio * 100)}% of original). This may indicate good expansion of ideas.`);
+    }
   }
   processAIResponse(response, executionId, originalContent) {
     this.logger.debug(`[${executionId}] Full AI response content`, {

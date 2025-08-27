@@ -1,7 +1,8 @@
 import { GooseAI } from '@/utils/goose';
 import { QualityDimensions } from '@/types/content';
-import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo } from '@/types/interfaces';
+import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo, ContentChunk } from '@/types/interfaces';
 import { ShakespeareLogger } from '@/utils/logger';
+import { ContentChunker } from '@/utils/chunker';
 
 export interface AIScoreResponse {
   score: number;
@@ -265,11 +266,13 @@ export class AIScorer implements IContentScorer {
   private ai: IAI;
   private logger: ShakespeareLogger;
   private defaultModelOptions?: AIModelOptions;
+  private chunker: ContentChunker;
 
   constructor(options: AIScorerOptions = {}) {
     this.ai = options.ai ?? new GooseAI();
     this.logger = options.logger ?? new ShakespeareLogger();
     this.defaultModelOptions = options.defaultModelOptions;
+    this.chunker = new ContentChunker({}, this.logger);
   }
 
   /**
@@ -364,13 +367,127 @@ export class AIScorer implements IContentScorer {
       throw new Error('At least one model option must be provided');
     }
     
+    // Check if content should be chunked
+    if (this.chunker.shouldChunkContent(content)) {
+      return this.improveContentWithChunking(content, analysis, modelOptions);
+    }
+    
+    // Use single-pass improvement for smaller content
+    return this.improveSingleContent(content, analysis, modelOptions);
+  }
+
+  /**
+   * Improve large content using chunking approach
+   */
+  private async improveContentWithChunking(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse> {
+    const executionId = `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = new Date().toISOString();
+    
+    this.logger.info(`[${executionId}] Starting chunked content improvement at ${timestamp}`, {
+      executionId,
+      originalContentLength: content.length,
+      timestamp,
+      operation: 'improve_content_chunked_start'
+    });
+    
+    // Split content into chunks
+    const chunks = this.chunker.chunkByHeaders(content);
+    
+    this.logger.info(`[${executionId}] Content split into ${chunks.length} chunks`, {
+      executionId,
+      chunkCount: chunks.length,
+      chunkSizes: chunks.map(c => c.characterCount),
+      operation: 'improve_content_chunks_created'
+    });
+    
+    // Improve each chunk
+    const improvedChunks: ContentChunk[] = [];
+    let totalCost = 0;
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      
+      this.logger.info(`[${executionId}] Processing chunk ${i + 1}/${chunks.length}`, {
+        executionId,
+        chunkIndex: i,
+        chunkId: chunk.id,
+        chunkSize: chunk.characterCount,
+        operation: 'improve_content_chunk_start'
+      });
+      
+      try {
+        // Improve this chunk
+        const chunkResponse = await this.improveSingleContent(chunk.content, analysis, modelOptions, `${executionId}-chunk-${i}`);
+        
+        // Create improved chunk
+        const improvedChunk: ContentChunk = {
+          ...chunk,
+          content: chunkResponse.content
+        };
+        
+        improvedChunks.push(improvedChunk);
+        totalCost += chunkResponse.costInfo.totalCost;
+        
+        this.logger.info(`[${executionId}] Chunk ${i + 1} improved successfully`, {
+          executionId,
+          chunkIndex: i,
+          originalLength: chunk.characterCount,
+          improvedLength: chunkResponse.content.length,
+          lengthRatio: chunkResponse.content.length / chunk.characterCount,
+          operation: 'improve_content_chunk_completed'
+        });
+        
+      } catch (error) {
+        this.logger.error(`[${executionId}] Failed to improve chunk ${i + 1}`, {
+          executionId,
+          chunkIndex: i,
+          error: error instanceof Error ? error.message : String(error),
+          operation: 'improve_content_chunk_failed'
+        });
+        throw new Error(`Failed to improve chunk ${i + 1}/${chunks.length}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    
+    // Reassemble chunks
+    const reassembledContent = this.chunker.reassembleChunks(improvedChunks);
+    
+    this.logger.info(`[${executionId}] Chunked content improvement completed`, {
+      executionId,
+      originalLength: content.length,
+      finalLength: reassembledContent.length,
+      lengthRatio: reassembledContent.length / content.length,
+      chunkCount: chunks.length,
+      totalCost,
+      operation: 'improve_content_chunked_completed'
+    });
+    
+    // Validate final length
+    this.validateImprovedContentLength(reassembledContent, content, executionId);
+    
+    return {
+      content: reassembledContent,
+      costInfo: {
+        provider: modelOptions[0]?.provider || 'unknown',
+        model: modelOptions[0]?.model || 'unknown',
+        inputTokens: Math.round(content.length / 4), // Rough estimate
+        outputTokens: Math.round(reassembledContent.length / 4),
+        totalCost,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Improve content without chunking (original method renamed)
+   */
+  private async improveSingleContent(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[], executionId?: string): Promise<AIResponse> {
     // Generate unique execution ID for tracking
-    const executionId = `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const finalExecutionId = executionId || `improve-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
     
     // Write detailed execution logs to file only
-    this.logger.info(`[${executionId}] Starting content improvement at ${timestamp}`, {
-      executionId,
+    this.logger.info(`[${finalExecutionId}] Starting content improvement at ${timestamp}`, {
+      executionId: finalExecutionId,
       originalContentLength: content.length,
       timestamp,
       operation: 'improve_content_start'
@@ -382,8 +499,8 @@ export class AIScorer implements IContentScorer {
       .replace('{content}', content)
       .replace('{contentLength}', content.length.toString());
     
-    this.logger.info(`[${executionId}] Full improvement request`, {
-      executionId,
+    this.logger.info(`[${finalExecutionId}] Full improvement request`, {
+      executionId: finalExecutionId,
       promptLength: prompt.length,
       fullPrompt: prompt,
       originalContent: content,
@@ -404,7 +521,7 @@ export class AIScorer implements IContentScorer {
       const hasMoreModels = i < modelOptions.length - 1;
       
       try {
-        this.logger.info(`[${executionId}] Sending AI request${isFirstModel ? '' : ` (fallback ${i})`}`, {
+        this.logger.info(`[${finalExecutionId}] Sending AI request${isFirstModel ? '' : ` (fallback ${i})`}`, {
           executionId,
           options: currentModel,
           modelIndex: i,
@@ -414,7 +531,7 @@ export class AIScorer implements IContentScorer {
         
         const response = await (this.ai as any).promptWithOptions(prompt, currentModel);
         
-        this.logger.info(`[${executionId}] Received AI response${isFirstModel ? '' : ` (fallback succeeded)`}`, {
+        this.logger.info(`[${finalExecutionId}] Received AI response${isFirstModel ? '' : ` (fallback succeeded)`}`, {
           executionId,
           responseLength: response.content.length,
           fullResponse: response.content,
@@ -427,7 +544,7 @@ export class AIScorer implements IContentScorer {
         }
         
         // Success! Process and return the response
-        return this.processAIResponse(response, executionId, content);
+        return this.processAIResponse(response, finalExecutionId, content);
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
@@ -436,7 +553,7 @@ export class AIScorer implements IContentScorer {
         const errorMessage = lastError.message;
         const isRuntimeError = errorMessage.startsWith('USAGE_CAP:') || errorMessage.startsWith('RUNTIME_ERROR:');
         
-        this.logger.error(`[${executionId}] Model ${i + 1}/${modelOptions.length} failed`, {
+        this.logger.error(`[${finalExecutionId}] Model ${i + 1}/${modelOptions.length} failed`, {
           executionId,
           modelIndex: i,
           model: currentModel,
@@ -471,6 +588,45 @@ export class AIScorer implements IContentScorer {
     
     // All models failed
     throw new Error(`All ${modelOptions.length} model(s) failed. Last error: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  /**
+   * Validate improved content length
+   */
+  private validateImprovedContentLength(improvedContent: string, originalContent: string, executionId: string): void {
+    const originalLength = originalContent.length;
+    const finalLength = improvedContent.length;
+    const lengthRatio = finalLength / originalLength;
+
+    // Implement tiered length validation
+    if (finalLength < originalLength * 0.7) {
+      this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: 'improve_content_validation_error'
+      });
+      throw new Error(`AI returned suspiciously short content (${finalLength} chars vs original ${originalLength} chars). Content should be 70-120% of original length.`);
+    } else if (finalLength < originalLength * 0.85) {
+      this.logger.warn(`[${executionId}] Content shorter than expected but acceptable`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: 'improve_content_validation_warning'
+      });
+      console.warn(`⚠️  Improved content is shorter than expected (${Math.round(lengthRatio * 100)}% of original). This may indicate over-condensation.`);
+    } else if (finalLength > originalLength * 1.2) {
+      this.logger.warn(`[${executionId}] Content longer than expected`, {
+        executionId,
+        originalLength,
+        finalLength,
+        lengthRatio,
+        operation: 'improve_content_validation_info'
+      });
+      console.log(`ℹ️  Improved content is longer than original (${Math.round(lengthRatio * 100)}% of original). This may indicate good expansion of ideas.`);
+    }
   }
 
   private processAIResponse(response: AIResponse, executionId: string, originalContent: string): AIResponse {

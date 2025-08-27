@@ -44,6 +44,7 @@ export declare class AIScorer implements IContentScorer {
     private ai;
     private logger;
     private defaultModelOptions?;
+    private chunker;
     constructor(options?: AIScorerOptions);
     /**
      * Score content across all quality dimensions
@@ -63,6 +64,18 @@ export declare class AIScorer implements IContentScorer {
      */
     improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
     improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse>;
+    /**
+     * Improve large content using chunking approach
+     */
+    private improveContentWithChunking;
+    /**
+     * Improve content without chunking (original method renamed)
+     */
+    private improveSingleContent;
+    /**
+     * Validate improved content length
+     */
+    private validateImprovedContentLength;
     private processAIResponse;
     /**
      * Batch scoring for cost optimization

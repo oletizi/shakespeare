@@ -219,3 +219,59 @@ export interface ShakespeareConfig {
     /** Content collection override */
     contentCollection?: ContentCollectionConfig | keyof typeof CONTENT_COLLECTIONS;
 }
+/**
+ * Content chunk for processing large documents
+ */
+export interface ContentChunk {
+    /** Unique identifier for the chunk */
+    id: string;
+    /** Content of this chunk */
+    content: string;
+    /** Starting line number in original content */
+    startLine: number;
+    /** Ending line number in original content */
+    endLine: number;
+    /** Headers present in this chunk */
+    headers: string[];
+    /** Whether this chunk should preserve frontmatter */
+    preserveFrontmatter: boolean;
+    /** Character count of this chunk */
+    characterCount: number;
+    /** Whether this is the first chunk */
+    isFirst: boolean;
+    /** Whether this is the last chunk */
+    isLast: boolean;
+}
+/**
+ * Configuration for content chunking
+ */
+export interface ChunkingConfig {
+    /** Maximum characters per chunk */
+    maxChunkSize: number;
+    /** Minimum characters per chunk */
+    minChunkSize: number;
+    /** Whether to split on markdown headers */
+    splitOnHeaders: boolean;
+    /** Header levels to split on (1 = H1, 2 = H2, etc.) */
+    headerLevels: number[];
+    /** Overlap between chunks for context */
+    overlapLines: number;
+}
+/**
+ * Result of chunk processing
+ */
+export interface ChunkProcessingResult {
+    /** The improved chunk */
+    chunk: ContentChunk;
+    /** Whether the processing succeeded */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Processing metadata */
+    metadata: {
+        originalLength: number;
+        improvedLength: number;
+        lengthRatio: number;
+        processingTime: number;
+    };
+}
