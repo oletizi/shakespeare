@@ -1,6 +1,7 @@
 import { GooseAI } from '@/utils/goose';
 import { QualityDimensions } from '@/types/content';
 import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo } from '@/types/interfaces';
+import { logError } from '@/utils/logger';
 
 export interface AIScoreResponse {
   score: number;
@@ -250,23 +251,9 @@ export class AIScorer implements IContentScorer {
         totalCost += result.costInfo.totalCost;
         
       } catch (error) {
-        console.error(`Error scoring ${strategy.dimension}:`, error);
-        // Use default values on error
-        (analysis.scores as any)[strategy.dimension] = 5.0;
-        (analysis.analysis as any)[strategy.dimension] = {
-          reasoning: 'Error during scoring process',
-          suggestions: ['Retry scoring']
-        };
-        
-        // Add minimal cost info for failed attempts
-        costBreakdown[strategy.dimension] = {
-          provider: strategy.preferredModel?.provider || 'unknown',
-          model: strategy.preferredModel?.model || 'unknown',
-          inputTokens: 0,
-          outputTokens: 0,
-          totalCost: 0,
-          timestamp: new Date().toISOString()
-        };
+        logError(error, `Error scoring ${strategy.dimension}`);
+        // Fail loudly - don't hide errors with default values
+        throw new Error(`Failed to score ${strategy.dimension}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -285,12 +272,9 @@ export class AIScorer implements IContentScorer {
       const response = await this.ai.prompt(prompt);
       return parseGooseResponse(response);
     } catch (error) {
-      console.error('Error scoring content:', error);
-      return {
-        score: 5.0,
-        reasoning: 'Error during scoring process',
-        suggestions: ['Retry scoring']
-      };
+      logError(error, 'Error scoring content');
+      // Fail loudly - don't hide errors with default values
+      throw new Error(`Content scoring failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

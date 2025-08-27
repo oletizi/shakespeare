@@ -3,6 +3,77 @@ import { join } from 'path';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
 
 /**
+ * Maximum character length for console error messages before truncation
+ */
+const MAX_CONSOLE_ERROR_LENGTH = 200;
+
+/**
+ * Format error for console display - keeps it concise and user-friendly
+ */
+export function formatErrorForConsole(error: unknown, operation?: string): string {
+  let errorMessage: string;
+  
+  if (error instanceof Error) {
+    errorMessage = error.message;
+  } else if (typeof error === 'string') {
+    errorMessage = error;
+  } else {
+    // For objects, JSON, etc., just show the type
+    errorMessage = `Unexpected error type: ${typeof error}`;
+  }
+  
+  // Prefix with operation if provided
+  if (operation) {
+    errorMessage = `${operation}: ${errorMessage}`;
+  }
+  
+  // Truncate if too long and add reference to full error log
+  if (errorMessage.length > MAX_CONSOLE_ERROR_LENGTH) {
+    errorMessage = errorMessage.substring(0, MAX_CONSOLE_ERROR_LENGTH) + '...';
+  }
+  
+  return errorMessage;
+}
+
+/**
+ * Centralized error logging - handles both console (concise) and file (verbose) logging
+ * This should be the single entry point for all error logging in the application
+ */
+export function logError(error: unknown, operation?: string, logger?: winston.Logger, logFilePath?: string): void {
+  // Always log concise error to console
+  const conciseError = formatErrorForConsole(error, operation);
+  console.error(`❌ ${conciseError}`);
+  
+  // Log full error details to file if logger is available
+  if (logger) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const timestamp = new Date().toISOString();
+    
+    const fullContext = {
+      timestamp,
+      operation: operation || 'Unknown operation',
+      error: errorMessage,
+      stack: errorStack,
+      process: {
+        cwd: process.cwd(),
+        argv: process.argv,
+        version: process.version,
+        platform: process.platform
+      }
+    };
+    
+    logger.error('Operation failed', fullContext);
+  }
+  
+  // Show file reference if available
+  if (logFilePath && existsSync(logFilePath)) {
+    console.error(`📋 Full error details logged to: ${logFilePath}`);
+    console.error(`💡 Run: tail -f "${logFilePath}" to monitor errors`);
+  }
+}
+
+/**
  * Structured logger for Shakespeare with configurable verbosity levels
  */
 export class ShakespeareLogger {
@@ -174,39 +245,19 @@ export class ShakespeareLogger {
    * Enhanced error logging with full context and user guidance
    */
   logError(operation: string, error: Error | string, context?: any): void {
-    const timestamp = new Date().toISOString();
-    const errorMessage = error instanceof Error ? error.message : error;
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    
-    // Full error context for the log file
-    const fullContext = {
-      timestamp,
-      operation,
-      error: errorMessage,
-      stack: errorStack,
-      context: context || {},
-      process: {
-        cwd: process.cwd(),
-        argv: process.argv,
-        version: process.version,
-        platform: process.platform
-      }
-    };
-
-    // Log full details to file
-    this.logger.error('Operation failed', fullContext);
-
-    // Show concise error to user with file reference
-    const conciseMessage = `${operation} failed: ${errorMessage}`;
-    console.error(`\n❌ ${conciseMessage}`);
-    
-    // Check if file logging is available
-    const hasFileTransport = this.logger.transports.some(t => t instanceof winston.transports.File);
-    if (hasFileTransport && existsSync(this.errorLogPath)) {
-      console.error(`📋 Full error details logged to: ${this.errorLogPath}`);
-      console.error(`💡 Run: tail -f "${this.errorLogPath}" to monitor errors\n`);
+    // Add extra context if provided
+    if (context) {
+      const enhancedError = error instanceof Error 
+        ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`)
+        : `${error} (Context: ${JSON.stringify(context)})`;
+      
+      console.error(); // Add newline for spacing
+      logError(enhancedError, operation, this.logger, this.errorLogPath);
+      console.error(); // Add newline for spacing
     } else {
-      console.error(`📋 Full error details available in console output above\n`);
+      console.error(); // Add newline for spacing
+      logError(error, operation, this.logger, this.errorLogPath);
+      console.error(); // Add newline for spacing
     }
   }
 

@@ -8,6 +8,7 @@
 
 import { Shakespeare } from '../index.js';
 import path from 'path';
+import { logError } from '@/utils/logger';
 
 async function main() {
   const rootDir = process.cwd();
@@ -32,7 +33,7 @@ async function main() {
         });
       }
     } catch (error) {
-      console.error('Error loading content database:', error);
+      logError(error, 'Error loading content database');
     }
     
     process.exit(1);
@@ -81,7 +82,7 @@ async function main() {
     console.log(`\n✅ Content review complete.`);
     
   } catch (error) {
-    console.error('❌ Error reviewing content:', error);
+    logError(error, 'Error reviewing content');
     process.exit(1);
   }
 }

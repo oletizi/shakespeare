@@ -1,5 +1,14 @@
 import winston from 'winston';
 /**
+ * Format error for console display - keeps it concise and user-friendly
+ */
+export declare function formatErrorForConsole(error: unknown, operation?: string): string;
+/**
+ * Centralized error logging - handles both console (concise) and file (verbose) logging
+ * This should be the single entry point for all error logging in the application
+ */
+export declare function logError(error: unknown, operation?: string, logger?: winston.Logger, logFilePath?: string): void;
+/**
  * Structured logger for Shakespeare with configurable verbosity levels
  */
 export declare class ShakespeareLogger {

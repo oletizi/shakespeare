@@ -117,9 +117,7 @@ export class Shakespeare {
       this.ai = new AIScorer(aiScorerOptions);
     }
 
-    // Ensure database directory exists
-    const dbDir = path.dirname(this.dbPath);
-    fs.mkdir(dbDir, { recursive: true }).catch(err => this.logger.error(`Failed to create database directory: ${err}`));
+    // Database directory creation will be handled during first database operation
   }
 
   /**

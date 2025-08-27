@@ -157,6 +157,11 @@ var ContentDatabaseHandler = class {
    */
   async save() {
     this.data.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+    try {
+      await fs2.mkdir(this.dbDir, { recursive: true });
+    } catch (error) {
+      throw new Error(`Failed to create database directory ${this.dbDir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const storageData = {
       ...this.data,
       entries: {}
@@ -202,6 +207,50 @@ import { spawn } from "child_process";
 import winston from "winston";
 import { join } from "path";
 import { mkdirSync, existsSync, writeFileSync } from "fs";
+var MAX_CONSOLE_ERROR_LENGTH = 200;
+function formatErrorForConsole(error, operation) {
+  let errorMessage;
+  if (error instanceof Error) {
+    errorMessage = error.message;
+  } else if (typeof error === "string") {
+    errorMessage = error;
+  } else {
+    errorMessage = `Unexpected error type: ${typeof error}`;
+  }
+  if (operation) {
+    errorMessage = `${operation}: ${errorMessage}`;
+  }
+  if (errorMessage.length > MAX_CONSOLE_ERROR_LENGTH) {
+    errorMessage = errorMessage.substring(0, MAX_CONSOLE_ERROR_LENGTH) + "...";
+  }
+  return errorMessage;
+}
+function logError(error, operation, logger, logFilePath) {
+  const conciseError = formatErrorForConsole(error, operation);
+  console.error(`\u274C ${conciseError}`);
+  if (logger) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : void 0;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const fullContext = {
+      timestamp,
+      operation: operation || "Unknown operation",
+      error: errorMessage,
+      stack: errorStack,
+      process: {
+        cwd: process.cwd(),
+        argv: process.argv,
+        version: process.version,
+        platform: process.platform
+      }
+    };
+    logger.error("Operation failed", fullContext);
+  }
+  if (logFilePath && existsSync(logFilePath)) {
+    console.error(`\u{1F4CB} Full error details logged to: ${logFilePath}`);
+    console.error(`\u{1F4A1} Run: tail -f "${logFilePath}" to monitor errors`);
+  }
+}
 var ShakespeareLogger = class {
   logger;
   verboseEnabled = false;
@@ -344,34 +393,15 @@ var ShakespeareLogger = class {
    * Enhanced error logging with full context and user guidance
    */
   logError(operation, error, context) {
-    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-    const errorMessage = error instanceof Error ? error.message : error;
-    const errorStack = error instanceof Error ? error.stack : void 0;
-    const fullContext = {
-      timestamp,
-      operation,
-      error: errorMessage,
-      stack: errorStack,
-      context: context || {},
-      process: {
-        cwd: process.cwd(),
-        argv: process.argv,
-        version: process.version,
-        platform: process.platform
-      }
-    };
-    this.logger.error("Operation failed", fullContext);
-    const conciseMessage = `${operation} failed: ${errorMessage}`;
-    console.error(`
-\u274C ${conciseMessage}`);
-    const hasFileTransport = this.logger.transports.some((t) => t instanceof winston.transports.File);
-    if (hasFileTransport && existsSync(this.errorLogPath)) {
-      console.error(`\u{1F4CB} Full error details logged to: ${this.errorLogPath}`);
-      console.error(`\u{1F4A1} Run: tail -f "${this.errorLogPath}" to monitor errors
-`);
+    if (context) {
+      const enhancedError = error instanceof Error ? new Error(`${error.message} (Context: ${JSON.stringify(context)})`) : `${error} (Context: ${JSON.stringify(context)})`;
+      console.error();
+      logError(enhancedError, operation, this.logger, this.errorLogPath);
+      console.error();
     } else {
-      console.error(`\u{1F4CB} Full error details available in console output above
-`);
+      console.error();
+      logError(error, operation, this.logger, this.errorLogPath);
+      console.error();
     }
   }
   /**
@@ -805,20 +835,8 @@ var AIScorer = class {
         costBreakdown[strategy.dimension] = result.costInfo;
         totalCost += result.costInfo.totalCost;
       } catch (error) {
-        console.error(`Error scoring ${strategy.dimension}:`, error);
-        analysis.scores[strategy.dimension] = 5;
-        analysis.analysis[strategy.dimension] = {
-          reasoning: "Error during scoring process",
-          suggestions: ["Retry scoring"]
-        };
-        costBreakdown[strategy.dimension] = {
-          provider: strategy.preferredModel?.provider || "unknown",
-          model: strategy.preferredModel?.model || "unknown",
-          inputTokens: 0,
-          outputTokens: 0,
-          totalCost: 0,
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        };
+        logError(error, `Error scoring ${strategy.dimension}`);
+        throw new Error(`Failed to score ${strategy.dimension}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     return {
@@ -835,12 +853,8 @@ var AIScorer = class {
       const response = await this.ai.prompt(prompt);
       return parseGooseResponse(response);
     } catch (error) {
-      console.error("Error scoring content:", error);
-      return {
-        score: 5,
-        reasoning: "Error during scoring process",
-        suggestions: ["Retry scoring"]
-      };
+      logError(error, "Error scoring content");
+      throw new Error(`Content scoring failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   /**
@@ -982,8 +996,6 @@ var Shakespeare = class _Shakespeare {
       }
       this.ai = new AIScorer(aiScorerOptions);
     }
-    const dbDir = path3.dirname(this.dbPath);
-    fs3.mkdir(dbDir, { recursive: true }).catch((err) => this.logger.error(`Failed to create database directory: ${err}`));
   }
   /**
    * Get database instance for testing purposes

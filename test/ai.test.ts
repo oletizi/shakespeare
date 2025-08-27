@@ -71,7 +71,7 @@ describe('AI Content Scoring', () => {
     expect(improveResponse.content).toContain('Improved Understanding TypeScript Generics');
   });
 
-  test('should handle AI errors during scoring', async () => {
+  test('should fail loudly on AI errors during scoring', async () => {
     // Create a mock AI that throws errors
     class ErrorAI extends MockAI {
       async prompt(prompt: string): Promise<string> {
@@ -81,12 +81,9 @@ describe('AI Content Scoring', () => {
     
     const errorAI = new ErrorAI([]);
     const errorScorer = new AIScorer({ ai: errorAI });
-    const analysis = await errorScorer.scoreContent(content);
     
-    // Should return default error values
-    expect(analysis.analysis.scores.readability).toBe(5.0);
-    expect(analysis.analysis.analysis.readability.reasoning).toBe('Error during scoring process');
-    expect(analysis.analysis.analysis.readability.suggestions).toContain('Retry scoring');
+    // Should fail loudly instead of returning default values
+    await expect(errorScorer.scoreContent(content)).rejects.toThrow('Failed to score readability: AI service unavailable');
   });
 
   test('should handle AI errors during content improvement', async () => {

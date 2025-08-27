@@ -9,6 +9,7 @@
 
 import { Shakespeare } from '../index.js';
 import path from 'path';
+import { logError } from '@/utils/logger';
 
 async function main() {
   const rootDir = process.cwd();
@@ -54,7 +55,7 @@ async function main() {
     console.log(`   ${dbPath}`);
     
   } catch (error) {
-    console.error('❌ Error discovering content:', error);
+    logError(error, 'Error discovering content');
     process.exit(1);
   }
 }

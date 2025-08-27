@@ -71,6 +71,13 @@ export class ContentDatabaseHandler implements IContentDatabase {
   async save(): Promise<void> {
     this.data.lastUpdated = new Date().toISOString();
     
+    // Ensure database directory exists - fail loudly if we can't create it
+    try {
+      await fs.mkdir(this.dbDir, { recursive: true });
+    } catch (error) {
+      throw new Error(`Failed to create database directory ${this.dbDir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
     // Convert absolute paths to relative paths for storage
     const storageData: ContentDatabase = {
       ...this.data,
