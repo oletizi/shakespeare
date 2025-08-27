@@ -1916,7 +1916,10 @@ var Shakespeare = class _Shakespeare {
           }
           try {
             const normalizedConfig = normalizeConfig(config);
-            const configDir = dirname2(resolve(configFile));
+            let configDir = dirname2(resolve(configFile));
+            if (configFile.includes(".shakespeare")) {
+              configDir = dirname2(configDir);
+            }
             if (normalizedConfig.dbPath) {
               normalizedConfig.dbPath = resolve(configDir, normalizedConfig.dbPath);
             }

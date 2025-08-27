@@ -852,8 +852,12 @@ export class Shakespeare {
             // Normalize configuration using versioning system
             const normalizedConfig = normalizeConfig(config);
             
-            // The root directory is the directory containing the config file
-            const configDir = dirname(resolve(configFile!));
+            // The root directory should be the project root, not the config directory
+            // For configs in .shakespeare/, use the parent directory
+            let configDir = dirname(resolve(configFile!));
+            if (configFile!.includes('.shakespeare')) {
+              configDir = dirname(configDir);
+            }
             
             // Resolve dbPath relative to config file location if provided
             if (normalizedConfig.dbPath) {
