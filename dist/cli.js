@@ -2445,7 +2445,7 @@ async function main() {
     process.exit(1);
   }
 }
-var isMainModule = process.argv[1]?.includes("cli.js");
+var isMainModule = process.argv[1]?.includes("cli.js") || process.argv[1]?.includes("shakespeare");
 if (isMainModule) {
   main().catch(console.error);
 }
