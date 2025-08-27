@@ -275,7 +275,12 @@ BENEFITS
 // Check if running via npx/npm bin or directly as cli.js
 const isMainModule = process.argv[1]?.includes('cli.js') || process.argv[1]?.includes('shakespeare');
 if (isMainModule) {
-  main().catch(console.error);
+  main().catch((error) => {
+    // Only log the error message, not the full stack trace
+    // The full error details are already logged to the error log file
+    console.error(`❌ ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  });
 }
 
 export { main as runCLI };

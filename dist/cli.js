@@ -2649,7 +2649,10 @@ BENEFITS
 }
 var isMainModule = process.argv[1]?.includes("cli.js") || process.argv[1]?.includes("shakespeare");
 if (isMainModule) {
-  main().catch(console.error);
+  main().catch((error) => {
+    console.error(`\u274C ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  });
 }
 export {
   main as runCLI
