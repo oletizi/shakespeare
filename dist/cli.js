@@ -1744,7 +1744,9 @@ var Shakespeare = class _Shakespeare {
    */
   async reviewAllBatch(batchSize = 5) {
     const startTime = Date.now();
-    this.log("\u{1F4CA} Starting batch content review...", "always");
+    const reviewOptions = await this.getWorkflowModelOptions("review");
+    const modelInfo = reviewOptions ? `${reviewOptions.provider || "default"}${reviewOptions.model ? `/${reviewOptions.model}` : ""}` : "default";
+    this.log(`\u{1F4CA} Starting batch content review using ${modelInfo}...`, "always");
     await this.initialize();
     const database = this._db.getData();
     const allEntries = Object.entries(database.entries || {});
@@ -2200,6 +2202,16 @@ var Shakespeare = class _Shakespeare {
     return this._db.getData().config;
   }
   /**
+   * Get model information as a formatted string for display
+   */
+  async getModelInfoString(workflowType) {
+    const modelOptions = await this.getWorkflowModelOptions(workflowType);
+    if (!modelOptions) return "default";
+    const provider = modelOptions.provider || "default";
+    const model = modelOptions.model ? `/${modelOptions.model}` : "";
+    return `${provider}${model}`;
+  }
+  /**
    * Get workflow-specific model options for an operation type
    */
   async getWorkflowModelOptions(workflowType) {
@@ -2627,11 +2639,12 @@ async function main() {
         break;
       case "improve":
         const improvePath = process.argv[3];
+        const improveModelInfo = await shakespeare.getModelInfoString("improve");
         if (improvePath) {
-          console.log(`\u{1F680} Running content improvement for: ${improvePath}...`);
+          console.log(`\u{1F680} Running content improvement for: ${improvePath} using ${improveModelInfo}...`);
           await shakespeare.improveContent(improvePath);
         } else {
-          console.log("\u{1F680} Running content improvement...");
+          console.log(`\u{1F680} Running content improvement using ${improveModelInfo}...`);
           await shakespeare.improveWorst();
         }
         break;

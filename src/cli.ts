@@ -134,11 +134,12 @@ async function main() {
         
       case 'improve':
         const improvePath = process.argv[3];
+        const improveModelInfo = await shakespeare.getModelInfoString('improve');
         if (improvePath) {
-          console.log(`🚀 Running content improvement for: ${improvePath}...`);
+          console.log(`🚀 Running content improvement for: ${improvePath} using ${improveModelInfo}...`);
           await shakespeare.improveContent(improvePath);
         } else {
-          console.log('🚀 Running content improvement...');
+          console.log(`🚀 Running content improvement using ${improveModelInfo}...`);
           await shakespeare.improveWorst();
         }
         break;

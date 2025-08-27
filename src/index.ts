@@ -637,7 +637,14 @@ export class Shakespeare {
    */
   async reviewAllBatch(batchSize: number = 5): Promise<WorkflowResult> {
     const startTime = Date.now();
-    this.log('📊 Starting batch content review...', 'always');
+    
+    // Get model configuration for review workflow
+    const reviewOptions = await this.getWorkflowModelOptions('review');
+    const modelInfo = reviewOptions ? 
+      `${reviewOptions.provider || 'default'}${reviewOptions.model ? `/${reviewOptions.model}` : ''}` : 
+      'default';
+    
+    this.log(`📊 Starting batch content review using ${modelInfo}...`, 'always');
     
     await this.initialize();
     const database = this._db.getData();
@@ -1234,6 +1241,18 @@ export class Shakespeare {
   async getWorkflowConfig(): Promise<WorkflowConfig | undefined> {
     await this._db.load();
     return this._db.getData().config;
+  }
+
+  /**
+   * Get model information as a formatted string for display
+   */
+  async getModelInfoString(workflowType: 'review' | 'improve' | 'generate'): Promise<string> {
+    const modelOptions = await this.getWorkflowModelOptions(workflowType);
+    if (!modelOptions) return 'default';
+    
+    const provider = modelOptions.provider || 'default';
+    const model = modelOptions.model ? `/${modelOptions.model}` : '';
+    return `${provider}${model}`;
   }
 
   /**

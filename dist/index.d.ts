@@ -194,6 +194,10 @@ export declare class Shakespeare {
      */
     getWorkflowConfig(): Promise<WorkflowConfig | undefined>;
     /**
+     * Get model information as a formatted string for display
+     */
+    getModelInfoString(workflowType: 'review' | 'improve' | 'generate'): Promise<string>;
+    /**
      * Get workflow-specific model options for an operation type
      */
     private getWorkflowModelOptions;
