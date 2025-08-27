@@ -8,6 +8,9 @@ export declare const SHAKESPEARE_CONFIG_V1_SCHEMA: {
     readonly description: "Legacy configuration format for Shakespeare AI content management system";
     readonly type: "object";
     readonly properties: {
+        readonly $schema: {
+            readonly type: "string";
+        };
         readonly version: {
             readonly type: "number";
             readonly enum: readonly [1];
@@ -166,6 +169,9 @@ export declare const SHAKESPEARE_CONFIG_V2_SCHEMA: {
     readonly description: "Current configuration format for Shakespeare AI content management system with model negotiation support";
     readonly type: "object";
     readonly properties: {
+        readonly $schema: {
+            readonly type: "string";
+        };
         readonly version: {
             readonly type: "number";
             readonly enum: readonly [2];

@@ -5,6 +5,10 @@
   "description": "Current configuration format for Shakespeare AI content management system with model negotiation support",
   "type": "object",
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE support"
+    },
     "version": {
       "type": "number",
       "enum": [2],

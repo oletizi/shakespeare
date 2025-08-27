@@ -4,6 +4,16 @@
  */
 
 import { Shakespeare } from '@/index';
+import { 
+  initConfig, 
+  initConfigForce, 
+  validateConfig, 
+  showConfig, 
+  listTemplates, 
+  showConfigHelp,
+  ConfigTemplate,
+  CONFIG_TEMPLATES
+} from '@/utils/config-cli';
 
 /**
  * Display CLI help information
@@ -20,6 +30,7 @@ COMMANDS
   review       Review all content that needs analysis
   improve      Improve worst-scoring content
   workflow     Run complete workflow (discover → review → improve)
+  config       Configuration management (init, validate, show)
   help         Show this help message
 
 CONFIGURATION
@@ -30,10 +41,12 @@ CONFIGURATION
   4. .shakespeare/content-db.json (legacy workflow config)
 
 EXAMPLES
-  npx shakespeare discover    # Find and index all content
-  npx shakespeare review      # AI review of unreviewed content
-  npx shakespeare improve     # Improve lowest-scoring content
-  npx shakespeare workflow    # Complete end-to-end workflow
+  npx shakespeare discover              # Find and index all content
+  npx shakespeare review                # AI review of unreviewed content
+  npx shakespeare improve               # Improve lowest-scoring content
+  npx shakespeare workflow              # Complete end-to-end workflow
+  npx shakespeare config init astro     # Initialize config for Astro
+  npx shakespeare config validate       # Validate current config
 
 For more information, visit: https://github.com/oletizi/shakespeare
   `);
@@ -53,10 +66,56 @@ async function main() {
   try {
     console.log('🎭 Shakespeare CLI\n');
     
-    // Load Shakespeare with configuration
+    // Handle config commands that don't need Shakespeare instance
+    if (command === 'config') {
+      const subcommand = process.argv[3];
+      const options = process.argv.slice(4);
+      
+      switch (subcommand) {
+        case 'init': {
+          const template = options[0] as ConfigTemplate || 'astro';
+          const forceIndex = options.indexOf('--force');
+          const pathIndex = options.indexOf('--path');
+          const customPath = pathIndex !== -1 ? options[pathIndex + 1] : undefined;
+          
+          if (!CONFIG_TEMPLATES[template]) {
+            console.log(`❌ Unknown template: ${template}`);
+            console.log('Run "npx shakespeare config templates" to see available templates.');
+            process.exit(1);
+          }
+          
+          if (forceIndex !== -1) {
+            await initConfigForce(template, customPath);
+          } else {
+            await initConfig(template, customPath);
+          }
+          break;
+        }
+        case 'validate':
+          await validateConfig();
+          break;
+        case 'show':
+          await showConfig();
+          break;
+        case 'templates':
+          listTemplates();
+          break;
+        case 'help':
+        case undefined:
+          showConfigHelp();
+          break;
+        default:
+          console.error(`❌ Unknown config subcommand: ${subcommand}`);
+          console.log('Run "npx shakespeare config help" for usage information.');
+          process.exit(1);
+      }
+      return;
+    }
+    
+    // Load Shakespeare with configuration for content commands
     const shakespeare = await Shakespeare.fromConfig();
     
-    // Execute command
+    // Execute content management commands
     switch (command) {
       case 'discover':
         console.log('📂 Running content discovery...');

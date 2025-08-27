@@ -988,6 +988,7 @@ var SHAKESPEARE_CONFIG_V1_SCHEMA = {
   "description": "Legacy configuration format for Shakespeare AI content management system",
   "type": "object",
   "properties": {
+    "$schema": { "type": "string" },
     "version": {
       "type": "number",
       "enum": [1],
@@ -1090,6 +1091,7 @@ var SHAKESPEARE_CONFIG_V2_SCHEMA = {
   "description": "Current configuration format for Shakespeare AI content management system with model negotiation support",
   "type": "object",
   "properties": {
+    "$schema": { "type": "string" },
     "version": { "type": "number", "enum": [2] },
     "costOptimized": { "type": "boolean" },
     "qualityFirst": { "type": "boolean" },

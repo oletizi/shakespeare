@@ -5,6 +5,10 @@
   "description": "Legacy configuration format for Shakespeare AI content management system",
   "type": "object",
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE support"
+    },
     "version": {
       "type": "number",
       "enum": [1],
