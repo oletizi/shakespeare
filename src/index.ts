@@ -828,6 +828,7 @@ export class Shakespeare {
     // Try to find external config file first
     const possiblePaths = [
       configPath,
+      join(cwd, '.shakespeare', 'config.json'),
       join(cwd, 'shakespeare.config.js'),
       join(cwd, 'shakespeare.config.mjs'),
       join(cwd, 'shakespeare.config.json'),

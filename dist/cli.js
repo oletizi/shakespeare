@@ -1586,6 +1586,7 @@ var Shakespeare = class _Shakespeare {
     const cwd = process.cwd();
     const possiblePaths = [
       configPath,
+      join(cwd, ".shakespeare", "config.json"),
       join(cwd, "shakespeare.config.js"),
       join(cwd, "shakespeare.config.mjs"),
       join(cwd, "shakespeare.config.json"),
@@ -1772,9 +1773,10 @@ COMMANDS
 
 CONFIGURATION
   Shakespeare automatically loads configuration from:
-  1. .shakespeare/content-db.json (workflow config)
+  1. .shakespeare/config.json
   2. shakespeare.config.js/mjs/json
   3. .shakespeare.json
+  4. .shakespeare/content-db.json (legacy workflow config)
 
 EXAMPLES
   npx shakespeare discover    # Find and index all content

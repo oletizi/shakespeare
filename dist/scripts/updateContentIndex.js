@@ -1576,6 +1576,7 @@ var Shakespeare = class _Shakespeare {
     const cwd = process.cwd();
     const possiblePaths = [
       configPath,
+      join(cwd, ".shakespeare", "config.json"),
       join(cwd, "shakespeare.config.js"),
       join(cwd, "shakespeare.config.mjs"),
       join(cwd, "shakespeare.config.json"),
