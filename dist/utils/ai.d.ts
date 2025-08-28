@@ -65,6 +65,14 @@ export declare class AIScorer implements IContentScorer {
     improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
     improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse>;
     /**
+     * Resume an interrupted chunk improvement
+     */
+    resumeChunkedImprovement(executionId: string, content: string, analysis: AIContentAnalysis, modelOptions?: AIModelOptions[]): Promise<AIResponse>;
+    /**
+     * Get default model options for a task
+     */
+    private getDefaultModelOptions;
+    /**
      * Improve large content using chunking approach
      */
     private improveContentWithChunking;
@@ -89,6 +97,22 @@ export declare class AIScorer implements IContentScorer {
      * Estimate cost for improvement operation
      */
     estimateImprovementCost(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<number>;
+    /**
+     * Load chunk progress from disk
+     */
+    private loadChunkProgress;
+    /**
+     * Save chunk progress to disk
+     */
+    private saveChunkProgress;
+    /**
+     * Get progress directory path
+     */
+    private getProgressDir;
+    /**
+     * Clean up old progress files
+     */
+    private cleanupOldProgress;
     /**
      * Score a specific dimension with cost tracking
      */

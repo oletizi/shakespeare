@@ -264,10 +264,10 @@ var ContentDatabaseHandler = class {
     let totalQualityPoints = 0;
     let totalImprovementCost = 0;
     const costsByContent = {};
-    for (const [path4, entry] of Object.entries(entries)) {
+    for (const [path5, entry] of Object.entries(entries)) {
       if (!entry?.costAccounting) continue;
       const costs = entry.costAccounting;
-      costsByContent[path4] = costs;
+      costsByContent[path5] = costs;
       totalReviewCosts += costs.reviewCosts;
       totalImprovementCosts += costs.improvementCosts;
       totalGenerationCosts += costs.generationCosts;
@@ -992,6 +992,8 @@ var ContentChunker = class {
 };
 
 // src/utils/ai.ts
+import * as fs3 from "fs/promises";
+import * as path3 from "path";
 var ANALYSIS_PROMPTS = {
   readability: `
     Analyze the following content for readability. Consider sentence structure, vocabulary level, paragraph organization, transitions, and clarity.
@@ -1281,10 +1283,34 @@ var AIScorer = class {
     return this.improveSingleContent(content, analysis, modelOptions);
   }
   /**
+   * Resume an interrupted chunk improvement
+   */
+  async resumeChunkedImprovement(executionId, content, analysis, modelOptions) {
+    const finalModelOptions = modelOptions || this.getDefaultModelOptions("improve");
+    this.logger.info(`Resuming chunked improvement ${executionId}`);
+    return this.improveContentWithChunking(content, analysis, finalModelOptions, executionId);
+  }
+  /**
+   * Get default model options for a task
+   */
+  getDefaultModelOptions(task = "improve") {
+    if (task === "improve") {
+      return [
+        { provider: "anthropic", model: "claude-3-5-sonnet" },
+        { provider: "openai", model: "gpt-4o" }
+      ];
+    } else {
+      return [
+        { provider: "openai", model: "gpt-4o-mini" },
+        { provider: "anthropic", model: "claude-3-5-haiku" }
+      ];
+    }
+  }
+  /**
    * Improve large content using chunking approach
    */
-  async improveContentWithChunking(content, analysis, modelOptions) {
-    const executionId = `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  async improveContentWithChunking(content, analysis, modelOptions, providedExecutionId) {
+    const executionId = providedExecutionId || `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     this.logger.info(`[${executionId}] Starting chunked content improvement at ${timestamp}`, {
       executionId,
@@ -1299,10 +1325,20 @@ var AIScorer = class {
       chunkSizes: chunks.map((c) => c.characterCount),
       operation: "improve_content_chunks_created"
     });
-    const improvedChunks = [];
-    let totalCost = 0;
+    const chunkProgress = await this.loadChunkProgress(executionId);
+    const improvedChunks = chunkProgress.improvedChunks || [];
+    let totalCost = chunkProgress.totalCost || 0;
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
+      if (i < improvedChunks.length) {
+        this.logger.info(`[${executionId}] Skipping already processed chunk ${i + 1}/${chunks.length}`, {
+          executionId,
+          chunkIndex: i,
+          chunkId: chunk.id,
+          operation: "improve_content_chunk_skipped"
+        });
+        continue;
+      }
       this.logger.info(`[${executionId}] Processing chunk ${i + 1}/${chunks.length}`, {
         executionId,
         chunkIndex: i,
@@ -1318,6 +1354,12 @@ var AIScorer = class {
         };
         improvedChunks.push(improvedChunk);
         totalCost += chunkResponse.costInfo.totalCost;
+        await this.saveChunkProgress(executionId, {
+          improvedChunks,
+          totalCost,
+          lastProcessedIndex: i,
+          totalChunks: chunks.length
+        });
         this.logger.info(`[${executionId}] Chunk ${i + 1} improved successfully`, {
           executionId,
           chunkIndex: i,
@@ -1663,6 +1705,75 @@ var AIScorer = class {
     return await this.ai.estimateCost(prompt, options);
   }
   /**
+   * Load chunk progress from disk
+   */
+  async loadChunkProgress(executionId) {
+    const progressPath = path3.join(this.getProgressDir(), `${executionId}.json`);
+    try {
+      const content = await fs3.readFile(progressPath, "utf-8");
+      return JSON.parse(content);
+    } catch {
+      return {
+        improvedChunks: [],
+        totalCost: 0,
+        lastProcessedIndex: -1
+      };
+    }
+  }
+  /**
+   * Save chunk progress to disk
+   */
+  async saveChunkProgress(executionId, progress) {
+    const progressDir = this.getProgressDir();
+    const progressPath = path3.join(progressDir, `${executionId}.json`);
+    try {
+      await fs3.mkdir(progressDir, { recursive: true });
+      await fs3.writeFile(progressPath, JSON.stringify(progress, null, 2));
+      this.logger.info(`Saved chunk progress for ${executionId}`, {
+        executionId,
+        lastProcessedIndex: progress.lastProcessedIndex,
+        totalChunks: progress.totalChunks,
+        totalCost: progress.totalCost
+      });
+    } catch (error) {
+      this.logger.error(`Failed to save chunk progress`, {
+        executionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  /**
+   * Get progress directory path
+   */
+  getProgressDir() {
+    const baseDir = process.cwd();
+    return path3.join(baseDir, ".shakespeare", "progress");
+  }
+  /**
+   * Clean up old progress files
+   */
+  async cleanupOldProgress(daysToKeep = 7) {
+    const progressDir = this.getProgressDir();
+    try {
+      const files = await fs3.readdir(progressDir);
+      const cutoffTime = Date.now() - daysToKeep * 24 * 60 * 60 * 1e3;
+      for (const file of files) {
+        const filePath = path3.join(progressDir, file);
+        const stats = await fs3.stat(filePath);
+        if (stats.mtimeMs < cutoffTime) {
+          await fs3.unlink(filePath);
+          this.logger.info(`Cleaned up old progress file: ${file}`);
+        }
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        this.logger.error(`Failed to cleanup old progress files`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
+  /**
    * Score a specific dimension with cost tracking
    */
   async scoreDimensionWithCost(prompt, modelOptions) {
@@ -1698,8 +1809,8 @@ var InvalidConfigError = class extends Error {
 };
 
 // src/index.ts
-import path3 from "path";
-import fs3 from "fs/promises";
+import path4 from "path";
+import fs4 from "fs/promises";
 
 // src/utils/schema-validation.ts
 var SHAKESPEARE_CONFIG_SCHEMA = {
@@ -1824,23 +1935,23 @@ var SimpleJSONSchemaValidator = class {
       errors: errors.length > 0 ? errors : void 0
     };
   }
-  validateObject(schema, data, path4, errors) {
+  validateObject(schema, data, path5, errors) {
     if (schema.type === "object") {
       if (typeof data !== "object" || data === null || Array.isArray(data)) {
-        errors.push({ path: path4, message: "Expected object" });
+        errors.push({ path: path5, message: "Expected object" });
         return;
       }
       if (schema.required) {
         for (const prop of schema.required) {
           if (!(prop in data)) {
-            errors.push({ path: `${path4}.${prop}`, message: `Missing required property: ${prop}` });
+            errors.push({ path: `${path5}.${prop}`, message: `Missing required property: ${prop}` });
           }
         }
       }
       if (schema.properties) {
         for (const [prop, propSchema] of Object.entries(schema.properties)) {
           if (prop in data) {
-            this.validateAny(propSchema, data[prop], `${path4}.${prop}`, errors);
+            this.validateAny(propSchema, data[prop], `${path5}.${prop}`, errors);
           }
         }
       }
@@ -1848,51 +1959,51 @@ var SimpleJSONSchemaValidator = class {
         const allowedProps = schema.properties ? Object.keys(schema.properties) : [];
         for (const prop of Object.keys(data)) {
           if (!allowedProps.includes(prop)) {
-            errors.push({ path: `${path4}.${prop}`, message: `Additional property not allowed: ${prop}` });
+            errors.push({ path: `${path5}.${prop}`, message: `Additional property not allowed: ${prop}` });
           }
         }
       }
     }
   }
-  validateAny(schema, data, path4, errors) {
+  validateAny(schema, data, path5, errors) {
     if (schema.type) {
       switch (schema.type) {
         case "object":
-          this.validateObject(schema, data, path4, errors);
+          this.validateObject(schema, data, path5, errors);
           break;
         case "string":
           if (typeof data !== "string") {
-            errors.push({ path: path4, message: "Expected string" });
+            errors.push({ path: path5, message: "Expected string" });
           } else if (schema.enum && !schema.enum.includes(data)) {
-            errors.push({ path: path4, message: `Value must be one of: ${schema.enum.join(", ")}` });
+            errors.push({ path: path5, message: `Value must be one of: ${schema.enum.join(", ")}` });
           }
           break;
         case "number":
           if (typeof data !== "number") {
-            errors.push({ path: path4, message: "Expected number" });
+            errors.push({ path: path5, message: "Expected number" });
           } else {
             if (schema.minimum !== void 0 && data < schema.minimum) {
-              errors.push({ path: path4, message: `Value must be >= ${schema.minimum}` });
+              errors.push({ path: path5, message: `Value must be >= ${schema.minimum}` });
             }
             if (schema.maximum !== void 0 && data > schema.maximum) {
-              errors.push({ path: path4, message: `Value must be <= ${schema.maximum}` });
+              errors.push({ path: path5, message: `Value must be <= ${schema.maximum}` });
             }
             if (schema.enum && !schema.enum.includes(data)) {
-              errors.push({ path: path4, message: `Value must be one of: ${schema.enum.join(", ")}` });
+              errors.push({ path: path5, message: `Value must be one of: ${schema.enum.join(", ")}` });
             }
           }
           break;
         case "boolean":
           if (typeof data !== "boolean") {
-            errors.push({ path: path4, message: "Expected boolean" });
+            errors.push({ path: path5, message: "Expected boolean" });
           }
           break;
         case "array":
           if (!Array.isArray(data)) {
-            errors.push({ path: path4, message: "Expected array" });
+            errors.push({ path: path5, message: "Expected array" });
           } else if (schema.items) {
             data.forEach((item, index) => {
-              this.validateAny(schema.items, item, `${path4}[${index}]`, errors);
+              this.validateAny(schema.items, item, `${path5}[${index}]`, errors);
             });
           }
           break;
@@ -1903,7 +2014,7 @@ var SimpleJSONSchemaValidator = class {
       for (const subSchema of schema.oneOf) {
         const subErrors = [];
         try {
-          this.validateAny(subSchema, data, path4, subErrors);
+          this.validateAny(subSchema, data, path5, subErrors);
           if (subErrors.length === 0) {
             validCount++;
           }
@@ -1912,9 +2023,9 @@ var SimpleJSONSchemaValidator = class {
         oneOfErrors.push(subErrors);
       }
       if (validCount === 0) {
-        errors.push({ path: path4, message: "Data does not match any of the expected schemas" });
+        errors.push({ path: path5, message: "Data does not match any of the expected schemas" });
       } else if (validCount > 1) {
-        errors.push({ path: path4, message: "Data matches multiple schemas (should match exactly one)" });
+        errors.push({ path: path5, message: "Data matches multiple schemas (should match exactly one)" });
       }
     }
   }
@@ -1935,7 +2046,7 @@ var Shakespeare = class _Shakespeare {
   constructor(rootDir = process.cwd(), dbPath, options = {}) {
     this.verbose = false;
     this.rootDir = rootDir;
-    this.dbPath = dbPath ?? path3.join(rootDir, ".shakespeare", "content-db.json");
+    this.dbPath = dbPath ?? path4.join(rootDir, ".shakespeare", "content-db.json");
     this.logger = new ShakespeareLogger(rootDir);
     this.config = {
       dbPath,
@@ -2076,7 +2187,7 @@ var Shakespeare = class _Shakespeare {
       this.logger.warn("Database not loaded. Call initialize() first.");
     }
     const database = this._db.getData();
-    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path4, _]) => path4);
+    return Object.entries(database.entries || {}).filter(([_, entry]) => entry.status === "needs_review").map(([path5, _]) => path5);
   }
   /**
    * Get detailed content objects that need review
@@ -2102,8 +2213,8 @@ var Shakespeare = class _Shakespeare {
    * Review/score a specific content file
    * This is a convenience method that delegates to batch processing with a single item
    */
-  async reviewContent(path4) {
-    const result = await this.reviewContentBatch([path4], 1);
+  async reviewContent(path5) {
+    const result = await this.reviewContentBatch([path5], 1);
     if (result.failed.length > 0) {
       throw new Error(result.failed[0].error);
     }
@@ -2122,13 +2233,13 @@ var Shakespeare = class _Shakespeare {
     const database = this._db.getData();
     let worstScore = Infinity;
     let worstPath = null;
-    for (const [path4, entry] of Object.entries(database.entries)) {
+    for (const [path5, entry] of Object.entries(database.entries)) {
       if (entry.status === "meets_targets" || entry.status === "needs_review") continue;
       const avgScore = this.calculateOverallQuality(entry.currentScores);
       if (avgScore === 0) continue;
       if (avgScore < worstScore) {
         worstScore = avgScore;
-        worstPath = path4;
+        worstPath = path5;
       }
     }
     return worstPath;
@@ -2207,7 +2318,7 @@ var Shakespeare = class _Shakespeare {
       this.log(`\u{1F4E6} Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)`, "always");
       const batchPromises = batch.map(async (filePath) => {
         try {
-          this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)}`, "verbose");
+          this.log(`\u{1F4CA} Reviewing ${path4.basename(filePath)}`, "verbose");
           const database = this._db.getData();
           const entry = database.entries[filePath];
           if (!entry) {
@@ -2237,7 +2348,7 @@ var Shakespeare = class _Shakespeare {
           return { path: filePath, success: true };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          this.log(`\u274C Failed to review ${path3.basename(filePath)}: ${errorMessage}`, "always");
+          this.log(`\u274C Failed to review ${path4.basename(filePath)}: ${errorMessage}`, "always");
           return { path: filePath, success: false, error: errorMessage };
         }
       });
@@ -2245,7 +2356,7 @@ var Shakespeare = class _Shakespeare {
       batchResults.forEach((result) => {
         if (result.success) {
           successful.push(result.path);
-          this.log(`\u2705 Reviewed: ${path3.basename(result.path)}`, "verbose");
+          this.log(`\u2705 Reviewed: ${path4.basename(result.path)}`, "verbose");
         } else {
           failed.push({ path: result.path, error: result.error || "Unknown error" });
         }
@@ -2289,14 +2400,14 @@ var Shakespeare = class _Shakespeare {
       this.log(`\u{1F4E6} Processing improvement batch ${batchNumber}/${totalBatches} (${batch.length} files)`, "always");
       const batchPromises = batch.map(async (filePath) => {
         try {
-          this.log(`\u{1F4DD} Improving ${path3.basename(filePath)}`, "verbose");
+          this.log(`\u{1F4DD} Improving ${path4.basename(filePath)}`, "verbose");
           await this._db.load();
           const database = this._db.getData();
           this.logger.debug(`\u{1F50D} Looking for entry with path: ${filePath}`);
           this.logger.debug(`\u{1F50D} Available database entries: ${Object.keys(database.entries).join(", ")}`);
           let entry = database.entries[filePath];
           if (!entry) {
-            const absolutePath = path3.resolve(this.rootDir, filePath);
+            const absolutePath = path4.resolve(this.rootDir, filePath);
             this.logger.debug(`\u{1F50D} Trying absolute path: ${absolutePath}`);
             entry = database.entries[absolutePath];
           }
@@ -2339,11 +2450,11 @@ var Shakespeare = class _Shakespeare {
             await this._db.addOperationCost(databaseKey, "review", newScoringResult.costInfo);
           }
           try {
-            if (!path3.isAbsolute(absoluteFilePath)) {
+            if (!path4.isAbsolute(absoluteFilePath)) {
               throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
             }
             this.logger.debug(`\u{1F50D} Writing improved content to: ${absoluteFilePath}`);
-            await fs3.writeFile(absoluteFilePath, improvedContent, "utf-8");
+            await fs4.writeFile(absoluteFilePath, improvedContent, "utf-8");
             this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${absoluteFilePath}`);
           } catch (writeError) {
             const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
@@ -2373,7 +2484,7 @@ var Shakespeare = class _Shakespeare {
           return { path: filePath, success: true };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          this.log(`\u274C Failed to improve ${path3.basename(filePath)}: ${errorMessage}`, "always");
+          this.log(`\u274C Failed to improve ${path4.basename(filePath)}: ${errorMessage}`, "always");
           return { path: filePath, success: false, error: errorMessage };
         }
       });
@@ -2381,7 +2492,7 @@ var Shakespeare = class _Shakespeare {
       batchResults.forEach((result) => {
         if (result.success) {
           successful.push(result.path);
-          this.log(`\u2705 Improved: ${path3.basename(result.path)}`, "verbose");
+          this.log(`\u2705 Improved: ${path4.basename(result.path)}`, "verbose");
         } else {
           failed.push({ path: result.path, error: result.error || "Unknown error" });
         }
@@ -2421,7 +2532,7 @@ var Shakespeare = class _Shakespeare {
     await this.initialize();
     const database = this._db.getData();
     const allEntries = Object.entries(database.entries || {});
-    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path5]) => path5);
     if (contentNeedingReview.length === 0) {
       this.log("\u2705 No content needs review", "always");
       return {
@@ -2446,10 +2557,10 @@ var Shakespeare = class _Shakespeare {
     const database = this._db.getData();
     const worstFiles = [];
     const entries = Object.entries(database.entries);
-    const scoredEntries = entries.filter(([, entry]) => entry.status !== "needs_review" && entry.status !== "meets_targets").map(([path4, entry]) => {
+    const scoredEntries = entries.filter(([, entry]) => entry.status !== "needs_review" && entry.status !== "meets_targets").map(([path5, entry]) => {
       const scores = Object.values(entry.currentScores);
       const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-      return { path: path4, avgScore, entry };
+      return { path: path5, avgScore, entry };
     }).filter(({ avgScore }) => avgScore > 0).sort((a, b) => a.avgScore - b.avgScore);
     for (let i = 0; i < Math.min(count, scoredEntries.length); i++) {
       worstFiles.push(scoredEntries[i].path);
@@ -2465,7 +2576,7 @@ var Shakespeare = class _Shakespeare {
     this.log(`\u{1F4CB} Selected ${worstFiles.length} files for improvement:`, "verbose");
     worstFiles.forEach((file, index) => {
       const entry = scoredEntries.find((e) => e.path === file);
-      this.log(`   ${index + 1}. ${path3.basename(file)} (score: ${entry?.avgScore.toFixed(1)})`, "verbose");
+      this.log(`   ${index + 1}. ${path4.basename(file)} (score: ${entry?.avgScore.toFixed(1)})`, "verbose");
     });
     const result = await this.improveContentBatch(worstFiles, batchSize);
     result.summary.duration = Date.now() - startTime;
@@ -2483,7 +2594,7 @@ var Shakespeare = class _Shakespeare {
       const duration = Date.now() - startTime;
       this.log(`\u{1F4CA} Discovery completed: ${discovered.length} files found`);
       if (discovered.length > 0) {
-        discovered.forEach((file) => this.log(`  \u{1F4C4} ${path3.basename(file)}`));
+        discovered.forEach((file) => this.log(`  \u{1F4C4} ${path4.basename(file)}`));
       }
       return {
         successful: discovered,
@@ -2541,7 +2652,7 @@ var Shakespeare = class _Shakespeare {
       this.log(`     ${status}: ${count}`, "always");
     });
     this.log("", "always");
-    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path4]) => path4);
+    const contentNeedingReview = allEntries.filter(([, entry]) => entry.status === "needs_review").map(([path5]) => path5);
     if (contentNeedingReview.length === 0) {
       this.log("\u2705 No content needs review", "always");
       return {
@@ -2554,7 +2665,7 @@ var Shakespeare = class _Shakespeare {
     if (this.verbose) {
       this.log("\u{1F4C2} Files to review:");
       contentNeedingReview.forEach((filePath, index) => {
-        this.log(`   ${index + 1}. ${path3.basename(filePath)}`);
+        this.log(`   ${index + 1}. ${path4.basename(filePath)}`);
       });
       this.log("");
     }
@@ -2566,11 +2677,11 @@ var Shakespeare = class _Shakespeare {
       const filePath = contentNeedingReview[i];
       const fileStartTime = Date.now();
       try {
-        this.log(`\u{1F4CA} Reviewing ${path3.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`, "always");
+        this.log(`\u{1F4CA} Reviewing ${path4.basename(filePath)} (${i + 1}/${contentNeedingReview.length})`, "always");
         if (this.verbose) {
           try {
-            const fs4 = await import("fs/promises");
-            const stats = await fs4.stat(filePath);
+            const fs5 = await import("fs/promises");
+            const stats = await fs5.stat(filePath);
             const fileSize = Math.round(stats.size / 1024 * 10) / 10;
             totalFileSize += stats.size;
             this.log(`   \u{1F4C4} File size: ${fileSize} KB`, "debug");
@@ -2587,7 +2698,7 @@ var Shakespeare = class _Shakespeare {
         const updatedEntry = updatedDatabase.entries[filePath];
         successful.push(filePath);
         const fileDuration = Date.now() - fileStartTime;
-        this.log(`\u2705 Reviewed: ${path3.basename(filePath)} (${fileDuration}ms)`, "always");
+        this.log(`\u2705 Reviewed: ${path4.basename(filePath)} (${fileDuration}ms)`, "always");
         if (this.verbose && updatedEntry) {
           this.log("   \u{1F4CA} Quality Scores:");
           this.log(`      Readability: ${updatedEntry.currentScores.readability}/10`);
@@ -2603,7 +2714,7 @@ var Shakespeare = class _Shakespeare {
         const errorMessage = error instanceof Error ? error.message : String(error);
         failed.push({ path: filePath, error: errorMessage });
         const fileDuration = Date.now() - fileStartTime;
-        this.log(`\u274C Failed to review ${path3.basename(filePath)} (${fileDuration}ms): ${errorMessage}`, "always");
+        this.log(`\u274C Failed to review ${path4.basename(filePath)} (${fileDuration}ms): ${errorMessage}`, "always");
         if (this.verbose) {
           this.log(`   \u{1F50D} Error details: ${error instanceof Error ? error.stack : errorMessage}`, "debug");
         }
@@ -2628,7 +2739,7 @@ var Shakespeare = class _Shakespeare {
       if (failed.length > 0) {
         this.log("   \u274C Failed files:");
         failed.forEach(({ path: filePath, error }) => {
-          this.log(`      ${path3.basename(filePath)}: ${error}`);
+          this.log(`      ${path4.basename(filePath)}: ${error}`);
         });
       }
     }
@@ -2659,10 +2770,10 @@ var Shakespeare = class _Shakespeare {
           this.log("\u2705 No content needs improvement");
           break;
         }
-        this.log(`\u{1F4DD} Improving ${path3.basename(worstPath)} (${i + 1}/${count})`);
+        this.log(`\u{1F4DD} Improving ${path4.basename(worstPath)} (${i + 1}/${count})`);
         await this.improveContent(worstPath);
         successful.push(worstPath);
-        this.log(`\u2705 Improved: ${path3.basename(worstPath)}`);
+        this.log(`\u2705 Improved: ${path4.basename(worstPath)}`);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         failed.push({ path: "improvement", error: errorMessage });
@@ -2708,7 +2819,7 @@ var Shakespeare = class _Shakespeare {
     let totalQualityGain = 0;
     const contentEfficiency = [];
     const diminishingReturns = [];
-    for (const [path4, entry] of Object.entries(database.entries)) {
+    for (const [path5, entry] of Object.entries(database.entries)) {
       if (entry.costAccounting && entry.reviewHistory.length > 0) {
         const investment = entry.costAccounting.improvementCosts;
         if (investment > 0) {
@@ -2731,7 +2842,7 @@ var Shakespeare = class _Shakespeare {
           }
           if (qualityGain > 0) {
             contentEfficiency.push({
-              path: path4,
+              path: path5,
               investment,
               qualityGain,
               efficiency: investment / qualityGain,
@@ -2739,7 +2850,7 @@ var Shakespeare = class _Shakespeare {
             });
             if (iterationEfficiency.length > 1) {
               diminishingReturns.push({
-                path: path4,
+                path: path5,
                 iterationEfficiency
               });
             }
@@ -2819,16 +2930,16 @@ var Shakespeare = class _Shakespeare {
    * Create Shakespeare from configuration file or database config
    */
   static async fromConfig(configPath) {
-    const { join: join2, dirname, resolve } = await import("path");
+    const { join: join3, dirname, resolve } = await import("path");
     const { existsSync: existsSync2, readFileSync } = await import("fs");
     const cwd = process.cwd();
     const possiblePaths = [
       configPath,
-      join2(cwd, ".shakespeare", "config.json"),
-      join2(cwd, "shakespeare.config.js"),
-      join2(cwd, "shakespeare.config.mjs"),
-      join2(cwd, "shakespeare.config.json"),
-      join2(cwd, ".shakespeare.json")
+      join3(cwd, ".shakespeare", "config.json"),
+      join3(cwd, "shakespeare.config.js"),
+      join3(cwd, "shakespeare.config.mjs"),
+      join3(cwd, "shakespeare.config.json"),
+      join3(cwd, ".shakespeare.json")
     ].filter(Boolean);
     for (const configFile of possiblePaths) {
       try {
@@ -2867,7 +2978,7 @@ var Shakespeare = class _Shakespeare {
       }
     }
     try {
-      const dbPath = join2(cwd, ".shakespeare", "content-db.json");
+      const dbPath = join3(cwd, ".shakespeare", "content-db.json");
       if (existsSync2(dbPath)) {
         const db = JSON.parse(readFileSync(dbPath, "utf-8"));
         if (db.config) {
@@ -3012,14 +3123,14 @@ function createShakespeare(rootDir, dbPath, options) {
 async function detectProjectType(rootDir) {
   try {
     const { existsSync: existsSync2 } = await import("fs");
-    const { join: join2 } = await import("path");
-    if (existsSync2(join2(rootDir, "astro.config.mjs")) || existsSync2(join2(rootDir, "astro.config.js")) || existsSync2(join2(rootDir, "src/content"))) {
+    const { join: join3 } = await import("path");
+    if (existsSync2(join3(rootDir, "astro.config.mjs")) || existsSync2(join3(rootDir, "astro.config.js")) || existsSync2(join3(rootDir, "src/content"))) {
       return "astro";
     }
-    if (existsSync2(join2(rootDir, "next.config.js")) || existsSync2(join2(rootDir, "next.config.mjs"))) {
+    if (existsSync2(join3(rootDir, "next.config.js")) || existsSync2(join3(rootDir, "next.config.mjs"))) {
       return "nextjs";
     }
-    if (existsSync2(join2(rootDir, "gatsby-config.js")) || existsSync2(join2(rootDir, "gatsby-config.ts"))) {
+    if (existsSync2(join3(rootDir, "gatsby-config.js")) || existsSync2(join3(rootDir, "gatsby-config.ts"))) {
       return "gatsby";
     }
     return "custom";

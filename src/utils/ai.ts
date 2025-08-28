@@ -3,6 +3,8 @@ import { QualityDimensions } from '@/types/content';
 import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo, ContentChunk } from '@/types/interfaces';
 import { ShakespeareLogger } from '@/utils/logger';
 import { ContentChunker } from '@/utils/chunker';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 export interface AIScoreResponse {
   score: number;
@@ -377,10 +379,40 @@ export class AIScorer implements IContentScorer {
   }
 
   /**
+   * Resume an interrupted chunk improvement
+   */
+  async resumeChunkedImprovement(executionId: string, content: string, analysis: AIContentAnalysis, modelOptions?: AIModelOptions[]): Promise<AIResponse> {
+    const finalModelOptions = modelOptions || this.getDefaultModelOptions('improve');
+    
+    this.logger.info(`Resuming chunked improvement ${executionId}`);
+    
+    // Load existing progress and continue
+    return this.improveContentWithChunking(content, analysis, finalModelOptions, executionId);
+  }
+
+  /**
+   * Get default model options for a task
+   */
+  private getDefaultModelOptions(task: 'improve' | 'review' = 'improve'): AIModelOptions[] {
+    // Default fallback chain
+    if (task === 'improve') {
+      return [
+        { provider: 'anthropic', model: 'claude-3-5-sonnet' },
+        { provider: 'openai', model: 'gpt-4o' }
+      ];
+    } else {
+      return [
+        { provider: 'openai', model: 'gpt-4o-mini' },
+        { provider: 'anthropic', model: 'claude-3-5-haiku' }
+      ];
+    }
+  }
+
+  /**
    * Improve large content using chunking approach
    */
-  private async improveContentWithChunking(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse> {
-    const executionId = `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  private async improveContentWithChunking(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[], providedExecutionId?: string): Promise<AIResponse> {
+    const executionId = providedExecutionId || `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
     
     this.logger.info(`[${executionId}] Starting chunked content improvement at ${timestamp}`, {
@@ -400,12 +432,26 @@ export class AIScorer implements IContentScorer {
       operation: 'improve_content_chunks_created'
     });
     
+    // Initialize chunk progress tracking
+    const chunkProgress = await this.loadChunkProgress(executionId);
+    
     // Improve each chunk
-    const improvedChunks: ContentChunk[] = [];
-    let totalCost = 0;
+    const improvedChunks: ContentChunk[] = chunkProgress.improvedChunks || [];
+    let totalCost = chunkProgress.totalCost || 0;
     
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
+      
+      // Check if chunk was already processed
+      if (i < improvedChunks.length) {
+        this.logger.info(`[${executionId}] Skipping already processed chunk ${i + 1}/${chunks.length}`, {
+          executionId,
+          chunkIndex: i,
+          chunkId: chunk.id,
+          operation: 'improve_content_chunk_skipped'
+        });
+        continue;
+      }
       
       this.logger.info(`[${executionId}] Processing chunk ${i + 1}/${chunks.length}`, {
         executionId,
@@ -427,6 +473,14 @@ export class AIScorer implements IContentScorer {
         
         improvedChunks.push(improvedChunk);
         totalCost += chunkResponse.costInfo.totalCost;
+        
+        // Save progress after each successful chunk
+        await this.saveChunkProgress(executionId, {
+          improvedChunks,
+          totalCost,
+          lastProcessedIndex: i,
+          totalChunks: chunks.length
+        });
         
         this.logger.info(`[${executionId}] Chunk ${i + 1} improved successfully`, {
           executionId,
@@ -882,6 +936,89 @@ export class AIScorer implements IContentScorer {
 
     // Use provided options or let GooseAI use its configured defaults  
     return await (this.ai as any).estimateCost(prompt, options);
+  }
+
+  /**
+   * Load chunk progress from disk
+   */
+  private async loadChunkProgress(executionId: string): Promise<any> {
+    const progressPath = path.join(this.getProgressDir(), `${executionId}.json`);
+    try {
+      const content = await fs.readFile(progressPath, 'utf-8');
+      return JSON.parse(content);
+    } catch {
+      // No existing progress
+      return {
+        improvedChunks: [],
+        totalCost: 0,
+        lastProcessedIndex: -1
+      };
+    }
+  }
+
+  /**
+   * Save chunk progress to disk
+   */
+  private async saveChunkProgress(executionId: string, progress: any): Promise<void> {
+    const progressDir = this.getProgressDir();
+    const progressPath = path.join(progressDir, `${executionId}.json`);
+    
+    try {
+      // Ensure directory exists
+      await fs.mkdir(progressDir, { recursive: true });
+      
+      // Save progress
+      await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
+      
+      this.logger.info(`Saved chunk progress for ${executionId}`, {
+        executionId,
+        lastProcessedIndex: progress.lastProcessedIndex,
+        totalChunks: progress.totalChunks,
+        totalCost: progress.totalCost
+      });
+    } catch (error) {
+      this.logger.error(`Failed to save chunk progress`, {
+        executionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Get progress directory path
+   */
+  private getProgressDir(): string {
+    // Store in .shakespeare/progress directory
+    const baseDir = process.cwd();
+    return path.join(baseDir, '.shakespeare', 'progress');
+  }
+
+  /**
+   * Clean up old progress files
+   */
+  private async cleanupOldProgress(daysToKeep: number = 7): Promise<void> {
+    const progressDir = this.getProgressDir();
+    try {
+      const files = await fs.readdir(progressDir);
+      const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
+      
+      for (const file of files) {
+        const filePath = path.join(progressDir, file);
+        const stats = await fs.stat(filePath);
+        
+        if (stats.mtimeMs < cutoffTime) {
+          await fs.unlink(filePath);
+          this.logger.info(`Cleaned up old progress file: ${file}`);
+        }
+      }
+    } catch (error) {
+      // Directory might not exist yet
+      if ((error as any).code !== 'ENOENT') {
+        this.logger.error(`Failed to cleanup old progress files`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
   }
 
   /**
