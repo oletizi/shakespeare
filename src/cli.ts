@@ -49,6 +49,7 @@ COMMANDS
   improve      Improve worst-scoring content
   batch        Batch processing operations (review, improve)
   status       Show content health status dashboard
+  roi          Show ROI analysis and diminishing returns
   workflow     Run complete workflow (discover → review → improve)
   config       Configuration management (init, validate, show)
   help         Show this help message
@@ -67,6 +68,7 @@ EXAMPLES
   npx shakespeare batch review          # Batch review with parallel processing
   npx shakespeare batch improve 10 3    # Batch improve 10 files, 3 at a time
   npx shakespeare status                # Show content health dashboard
+  npx shakespeare roi                   # Show ROI analysis and diminishing returns
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
   npx shakespeare config validate       # Validate current config
@@ -253,6 +255,23 @@ BENEFITS
           console.log('');
         }
         
+        // Display cost information
+        const costs = status.costSummary;
+        if (costs.totalOperations > 0) {
+          console.log('💰 Cost Analysis:');
+          console.log(`   📊 Total Operations: ${costs.totalOperations}`);
+          console.log(`   💰 Total Cost: $${costs.totalCosts.total.toFixed(4)}`);
+          console.log(`   📝 Review Costs: $${costs.totalCosts.review.toFixed(4)}`);
+          console.log(`   🚀 Improvement Costs: $${costs.totalCosts.improvement.toFixed(4)}`);
+          if (costs.totalCosts.generation > 0) {
+            console.log(`   ✨ Generation Costs: $${costs.totalCosts.generation.toFixed(4)}`);
+          }
+          if (costs.averageCostPerQualityPoint > 0) {
+            console.log(`   📈 Cost per Quality Point: $${costs.averageCostPerQualityPoint.toFixed(4)}`);
+          }
+          console.log('');
+        }
+        
         // Show next recommended actions with batch options
         if (status.needsReview > 0) {
           console.log('🔄 Recommended Next Steps:');
@@ -266,6 +285,47 @@ BENEFITS
         }
         if (status.needsReview === 0 && status.needsImprovement === 0) {
           console.log('🎉 All content is up to date!');
+        }
+        break;
+        
+      case 'roi':
+        console.log('📊 ROI Analysis & Diminishing Returns\n');
+        const roi = await shakespeare.getROIAnalysis();
+        
+        console.log('💰 Investment Overview:');
+        console.log(`   💸 Total Investment: $${roi.totalInvestment.toFixed(4)}`);
+        console.log(`   📈 Total Quality Gain: ${roi.totalQualityGain.toFixed(2)} points`);
+        console.log(`   💡 Average Cost per Quality Point: $${roi.averageCostPerQualityPoint.toFixed(4)}`);
+        console.log('');
+        
+        if (roi.contentEfficiency.length > 0) {
+          console.log('🏆 Content Efficiency Rankings (Best ROI first):');
+          roi.contentEfficiency.slice(0, 10).forEach((content, index) => {
+            const filename = content.path.split('/').pop() || content.path;
+            console.log(`   ${index + 1}. ${filename}`);
+            console.log(`      💰 Investment: $${content.investment.toFixed(4)}`);
+            console.log(`      📈 Quality Gain: +${content.qualityGain.toFixed(2)} points`);
+            console.log(`      ⚡ Efficiency: $${content.efficiency.toFixed(4)}/point`);
+            console.log(`      🔄 Iterations: ${content.iterations}`);
+            console.log('');
+          });
+        }
+        
+        if (roi.diminishingReturns.length > 0) {
+          console.log('📉 Diminishing Returns Analysis:');
+          roi.diminishingReturns.forEach(content => {
+            const filename = content.path.split('/').pop() || content.path;
+            console.log(`   📄 ${filename}:`);
+            content.iterationEfficiency.forEach(iter => {
+              const trendIcon = iter.efficiency > 0.01 ? '📈' : iter.efficiency > 0.005 ? '⚡' : '✅';
+              console.log(`      ${trendIcon} Iteration ${iter.iteration}: +${iter.qualityGain.toFixed(2)} points for $${iter.cost.toFixed(4)} ($${iter.efficiency.toFixed(4)}/point)`);
+            });
+            console.log('');
+          });
+        }
+        
+        if (roi.contentEfficiency.length === 0) {
+          console.log('ℹ️  No improvement data available yet. Run some improvements to see ROI analysis.');
         }
         break;
         

@@ -155,7 +155,15 @@ export class Shakespeare {
           lastReviewDate: new Date().toISOString(),
           improvementIterations: 0,
           status: 'needs_review', // Mark as unreviewed
-          reviewHistory: []
+          reviewHistory: [],
+          costAccounting: {
+            reviewCosts: 0,
+            improvementCosts: 0,
+            generationCosts: 0,
+            totalCost: 0,
+            operationHistory: [],
+            lastUpdated: new Date().toISOString()
+          }
         };
 
         await this._db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
@@ -194,10 +202,23 @@ export class Shakespeare {
             date: new Date().toISOString(),
             scores: analysis.scores,
             improvements: []
-          }]
+          }],
+          costAccounting: {
+            reviewCosts: 0,
+            improvementCosts: 0,
+            generationCosts: 0,
+            totalCost: 0,
+            operationHistory: [],
+            lastUpdated: new Date().toISOString()
+          }
         };
 
         await this._db.updateEntry(file, (_entry: ContentEntry | undefined) => newEntry);
+        
+        // Track the initial review cost
+        if (scoringResult.costInfo) {
+          await this._db.addOperationCost(file, 'review', scoringResult.costInfo);
+        }
       }
     }
   }
@@ -266,6 +287,14 @@ export class Shakespeare {
   }
 
   /**
+   * Calculate overall quality score from quality dimensions
+   */
+  private calculateOverallQuality(scores: QualityDimensions): number {
+    const values = Object.values(scores);
+    return values.reduce((sum, score) => sum + score, 0) / values.length;
+  }
+
+  /**
    * Get the entry with the lowest average score (excludes unreviewed content)
    */
   getWorstScoringContent(): string | null {
@@ -277,8 +306,7 @@ export class Shakespeare {
       // Skip content that meets targets or hasn't been reviewed yet
       if (entry.status === 'meets_targets' || entry.status === 'needs_review') continue;
 
-      const avgScore = Object.values(entry.currentScores).reduce((a, b) => a + b, 0) / 
-        Object.keys(entry.currentScores).length;
+      const avgScore = this.calculateOverallQuality(entry.currentScores);
 
       // Also skip content with zero scores (unreviewed)
       if (avgScore === 0) continue;
@@ -416,6 +444,12 @@ export class Shakespeare {
           };
 
           await this._db.updateEntry(filePath, () => updatedEntry);
+          
+          // Track the review cost
+          if (analysis.costInfo) {
+            await this._db.addOperationCost(filePath, 'review', analysis.costInfo);
+          }
+          
           await this._db.save();
           
           return { path: filePath, success: true };
@@ -523,6 +557,17 @@ export class Shakespeare {
           // Get current analysis
           const analysis = await this.ai.scoreContent(content);
           
+          // Get the database key for cost tracking
+          const databaseKey = Object.keys(database.entries).find(key => database.entries[key] === entry);
+          if (!databaseKey) {
+            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
+          }
+          
+          // Track the review cost (for scoring before improvement)
+          if (analysis.costInfo) {
+            await this._db.addOperationCost(databaseKey, 'review', analysis.costInfo);
+          }
+          
           // Generate improved content - single code path, no fallbacks
           this.logger.info(`📝 Attempting to improve content with ${content.length} characters...`);
           
@@ -544,6 +589,26 @@ export class Shakespeare {
           const newScoringResult = await this.ai.scoreContent(improvedContent);
           const newAnalysis = newScoringResult.analysis;
           
+          // Calculate quality improvement for ROI tracking
+          const qualityBefore = this.calculateOverallQuality(analysis.analysis.scores);
+          const qualityAfter = this.calculateOverallQuality(newAnalysis.scores);
+          
+          // Track the improvement cost with quality metrics
+          if (response.costInfo) {
+            await this._db.addOperationCost(
+              databaseKey, 
+              'improve', 
+              response.costInfo, 
+              qualityBefore, 
+              qualityAfter
+            );
+          }
+          
+          // Track the cost for scoring the improved content
+          if (newScoringResult.costInfo) {
+            await this._db.addOperationCost(databaseKey, 'review', newScoringResult.costInfo);
+          }
+          
           // Update the content file
           try {
             // Use the absolute path from the entry
@@ -560,11 +625,7 @@ export class Shakespeare {
             throw writeError;
           }
           
-          // Update database entry - use the path that was found in the database
-          const databaseKey = Object.keys(database.entries).find(key => database.entries[key] === entry);
-          if (!databaseKey) {
-            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
-          }
+          // Update database entry - use the path that was found in the database (already resolved above)
           
           await this._db.updateEntry(databaseKey, (entry: ContentEntry | undefined) => {
             if (!entry) {
@@ -1013,6 +1074,97 @@ export class Shakespeare {
   }
 
   /**
+   * Get detailed ROI analysis for content improvements
+   */
+  async getROIAnalysis(): Promise<{
+    totalInvestment: number;
+    totalQualityGain: number;
+    averageCostPerQualityPoint: number;
+    contentEfficiency: Array<{
+      path: string;
+      investment: number;
+      qualityGain: number;
+      efficiency: number;
+      iterations: number;
+    }>;
+    diminishingReturns: Array<{
+      path: string;
+      iterationEfficiency: Array<{
+        iteration: number;
+        cost: number;
+        qualityGain: number;
+        efficiency: number;
+      }>;
+    }>;
+  }> {
+    await this.initialize();
+    const database = this._db.getData();
+    const costSummary = this._db.getCostSummary();
+    
+    let totalInvestment = 0;
+    let totalQualityGain = 0;
+    const contentEfficiency = [];
+    const diminishingReturns = [];
+    
+    for (const [path, entry] of Object.entries(database.entries)) {
+      if (entry.costAccounting && entry.reviewHistory.length > 0) {
+        const investment = entry.costAccounting.improvementCosts;
+        if (investment > 0) {
+          totalInvestment += investment;
+          
+          // Calculate quality gain from review history
+          let qualityGain = 0;
+          const iterationEfficiency = [];
+          
+          for (let i = 0; i < entry.reviewHistory.length; i++) {
+            const historyEntry = entry.reviewHistory[i];
+            if (historyEntry.improvementMetrics) {
+              const metrics = historyEntry.improvementMetrics;
+              qualityGain += metrics.qualityDelta;
+              totalQualityGain += metrics.qualityDelta;
+              
+              iterationEfficiency.push({
+                iteration: i + 1,
+                cost: historyEntry.costInfo?.cost || 0,
+                qualityGain: metrics.qualityDelta,
+                efficiency: metrics.costPerQualityPoint
+              });
+            }
+          }
+          
+          if (qualityGain > 0) {
+            contentEfficiency.push({
+              path: path,
+              investment,
+              qualityGain,
+              efficiency: investment / qualityGain,
+              iterations: entry.improvementIterations
+            });
+            
+            if (iterationEfficiency.length > 1) {
+              diminishingReturns.push({
+                path: path,
+                iterationEfficiency
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    // Sort by efficiency (lower is better - less cost per quality point)
+    contentEfficiency.sort((a, b) => a.efficiency - b.efficiency);
+    
+    return {
+      totalInvestment,
+      totalQualityGain,
+      averageCostPerQualityPoint: costSummary.averageCostPerQualityPoint,
+      contentEfficiency,
+      diminishingReturns
+    };
+  }
+
+  /**
    * Get content health status dashboard
    */
   async getStatus(): Promise<{
@@ -1022,6 +1174,12 @@ export class Shakespeare {
     meetsTargets: number;
     averageScore: number;
     worstScoring: string | null;
+    costSummary: {
+      totalCosts: { review: number; improvement: number; generation: number; total: number };
+      costsByContent: Record<string, any>;
+      averageCostPerQualityPoint: number;
+      totalOperations: number;
+    };
   }> {
     await this.initialize();
     const database = this._db.getData();
@@ -1038,6 +1196,9 @@ export class Shakespeare {
 
     const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     const worstScoring = this.getWorstScoringContent();
+    
+    // Get cost summary from database
+    const costSummary = this._db.getCostSummary();
 
     return {
       totalFiles: entries.length,
@@ -1045,7 +1206,8 @@ export class Shakespeare {
       needsImprovement,
       meetsTargets,
       averageScore: Math.round(averageScore * 10) / 10,
-      worstScoring
+      worstScoring,
+      costSummary
     };
   }
 

@@ -189,6 +189,126 @@ var ContentDatabaseHandler = class {
     this.data.entries[entryPath] = updateFn(this.data.entries[entryPath]);
     await this.save();
   }
+  /**
+   * Initialize cost accounting for a new content entry
+   */
+  initializeCostAccounting() {
+    return {
+      reviewCosts: 0,
+      improvementCosts: 0,
+      generationCosts: 0,
+      totalCost: 0,
+      operationHistory: [],
+      lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Add cost information to a content entry
+   */
+  async addOperationCost(entryPath, operation, costInfo, qualityBefore, qualityAfter) {
+    await this.updateEntry(entryPath, (entry) => {
+      if (!entry) {
+        throw new Error(`Content entry not found: ${entryPath}`);
+      }
+      if (!entry.costAccounting) {
+        entry.costAccounting = this.initializeCostAccounting();
+      }
+      const operationCost = {
+        operation,
+        cost: costInfo.totalCost,
+        provider: costInfo.provider,
+        model: costInfo.model,
+        inputTokens: costInfo.inputTokens,
+        outputTokens: costInfo.outputTokens,
+        timestamp: costInfo.timestamp
+      };
+      entry.costAccounting.operationHistory.push(operationCost);
+      switch (operation) {
+        case "review":
+          entry.costAccounting.reviewCosts += costInfo.totalCost;
+          break;
+        case "improve":
+          entry.costAccounting.improvementCosts += costInfo.totalCost;
+          break;
+        case "generate":
+          entry.costAccounting.generationCosts += costInfo.totalCost;
+          break;
+      }
+      entry.costAccounting.totalCost = entry.costAccounting.reviewCosts + entry.costAccounting.improvementCosts + entry.costAccounting.generationCosts;
+      entry.costAccounting.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+      if (operation === "improve" && qualityBefore !== void 0 && qualityAfter !== void 0) {
+        const qualityDelta = qualityAfter - qualityBefore;
+        const improvementMetrics = {
+          scoreBefore: qualityBefore,
+          scoreAfter: qualityAfter,
+          qualityDelta,
+          costPerQualityPoint: qualityDelta > 0 ? costInfo.totalCost / qualityDelta : 0,
+          iterationNumber: entry.improvementIterations
+        };
+        if (entry.reviewHistory.length > 0) {
+          const lastEntry = entry.reviewHistory[entry.reviewHistory.length - 1];
+          lastEntry.improvementMetrics = improvementMetrics;
+          lastEntry.costInfo = operationCost;
+        }
+      }
+      return entry;
+    });
+  }
+  /**
+   * Get cost summary for all content or specific content
+   */
+  getCostSummary(specificPath) {
+    const entries = specificPath ? { [specificPath]: this.data.entries[specificPath] } : this.data.entries;
+    let totalReviewCosts = 0;
+    let totalImprovementCosts = 0;
+    let totalGenerationCosts = 0;
+    let totalOperations = 0;
+    let totalQualityPoints = 0;
+    let totalImprovementCost = 0;
+    const costsByContent = {};
+    for (const [path4, entry] of Object.entries(entries)) {
+      if (!entry?.costAccounting) continue;
+      const costs = entry.costAccounting;
+      costsByContent[path4] = costs;
+      totalReviewCosts += costs.reviewCosts;
+      totalImprovementCosts += costs.improvementCosts;
+      totalGenerationCosts += costs.generationCosts;
+      totalOperations += costs.operationHistory.length;
+      for (const historyEntry of entry.reviewHistory) {
+        if (historyEntry.improvementMetrics) {
+          totalQualityPoints += historyEntry.improvementMetrics.qualityDelta;
+          totalImprovementCost += historyEntry.costInfo?.cost || 0;
+        }
+      }
+    }
+    const totalCosts = totalReviewCosts + totalImprovementCosts + totalGenerationCosts;
+    const averageCostPerQualityPoint = totalQualityPoints > 0 ? totalImprovementCost / totalQualityPoints : 0;
+    return {
+      totalCosts: {
+        review: totalReviewCosts,
+        improvement: totalImprovementCosts,
+        generation: totalGenerationCosts,
+        total: totalCosts
+      },
+      costsByContent,
+      averageCostPerQualityPoint,
+      totalOperations
+    };
+  }
+  /**
+   * Ensure entry has cost accounting initialized (for backward compatibility)
+   */
+  async ensureCostAccounting(entryPath) {
+    await this.updateEntry(entryPath, (entry) => {
+      if (!entry) {
+        throw new Error(`Content entry not found: ${entryPath}`);
+      }
+      if (!entry.costAccounting) {
+        entry.costAccounting = this.initializeCostAccounting();
+      }
+      return entry;
+    });
+  }
 };
 
 // src/utils/constants.ts
@@ -1897,7 +2017,15 @@ var Shakespeare = class _Shakespeare {
           improvementIterations: 0,
           status: "needs_review",
           // Mark as unreviewed
-          reviewHistory: []
+          reviewHistory: [],
+          costAccounting: {
+            reviewCosts: 0,
+            improvementCosts: 0,
+            generationCosts: 0,
+            totalCost: 0,
+            operationHistory: [],
+            lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+          }
         };
         await this._db.updateEntry(file, (_entry) => newEntry);
         newFiles.push(file);
@@ -1928,9 +2056,20 @@ var Shakespeare = class _Shakespeare {
             date: (/* @__PURE__ */ new Date()).toISOString(),
             scores: analysis.scores,
             improvements: []
-          }]
+          }],
+          costAccounting: {
+            reviewCosts: 0,
+            improvementCosts: 0,
+            generationCosts: 0,
+            totalCost: 0,
+            operationHistory: [],
+            lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+          }
         };
         await this._db.updateEntry(file, (_entry) => newEntry);
+        if (scoringResult.costInfo) {
+          await this._db.addOperationCost(file, "review", scoringResult.costInfo);
+        }
       }
     }
   }
@@ -1982,6 +2121,13 @@ var Shakespeare = class _Shakespeare {
     }
   }
   /**
+   * Calculate overall quality score from quality dimensions
+   */
+  calculateOverallQuality(scores) {
+    const values = Object.values(scores);
+    return values.reduce((sum, score) => sum + score, 0) / values.length;
+  }
+  /**
    * Get the entry with the lowest average score (excludes unreviewed content)
    */
   getWorstScoringContent() {
@@ -1990,7 +2136,7 @@ var Shakespeare = class _Shakespeare {
     let worstPath = null;
     for (const [path4, entry] of Object.entries(database.entries)) {
       if (entry.status === "meets_targets" || entry.status === "needs_review") continue;
-      const avgScore = Object.values(entry.currentScores).reduce((a, b) => a + b, 0) / Object.keys(entry.currentScores).length;
+      const avgScore = this.calculateOverallQuality(entry.currentScores);
       if (avgScore === 0) continue;
       if (avgScore < worstScore) {
         worstScore = avgScore;
@@ -2096,6 +2242,9 @@ var Shakespeare = class _Shakespeare {
             }]
           };
           await this._db.updateEntry(filePath, () => updatedEntry);
+          if (analysis.costInfo) {
+            await this._db.addOperationCost(filePath, "review", analysis.costInfo);
+          }
           await this._db.save();
           return { path: filePath, success: true };
         } catch (error) {
@@ -2170,6 +2319,13 @@ var Shakespeare = class _Shakespeare {
           this.logger.debug(`\u{1F50D} Using absolute path from entry: ${absoluteFilePath}`);
           const content = await this.scanner.readContent(absoluteFilePath);
           const analysis = await this.ai.scoreContent(content);
+          const databaseKey = Object.keys(database.entries).find((key) => database.entries[key] === entry);
+          if (!databaseKey) {
+            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
+          }
+          if (analysis.costInfo) {
+            await this._db.addOperationCost(databaseKey, "review", analysis.costInfo);
+          }
           this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
           const modelOptionsArray = await this.getWorkflowModelOptions("improve");
           const response = await this.ai.improveContentWithModels(content, analysis.analysis, modelOptionsArray);
@@ -2180,6 +2336,20 @@ var Shakespeare = class _Shakespeare {
           }
           const newScoringResult = await this.ai.scoreContent(improvedContent);
           const newAnalysis = newScoringResult.analysis;
+          const qualityBefore = this.calculateOverallQuality(analysis.analysis.scores);
+          const qualityAfter = this.calculateOverallQuality(newAnalysis.scores);
+          if (response.costInfo) {
+            await this._db.addOperationCost(
+              databaseKey,
+              "improve",
+              response.costInfo,
+              qualityBefore,
+              qualityAfter
+            );
+          }
+          if (newScoringResult.costInfo) {
+            await this._db.addOperationCost(databaseKey, "review", newScoringResult.costInfo);
+          }
           try {
             if (!path3.isAbsolute(absoluteFilePath)) {
               throw new Error(`Expected absolute path from database entry, but got relative path: ${absoluteFilePath}`);
@@ -2191,10 +2361,6 @@ var Shakespeare = class _Shakespeare {
             const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
             this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
             throw writeError;
-          }
-          const databaseKey = Object.keys(database.entries).find((key) => database.entries[key] === entry);
-          if (!databaseKey) {
-            throw new Error(`Could not find database key for entry with path: ${absoluteFilePath}`);
           }
           await this._db.updateEntry(databaseKey, (entry2) => {
             if (!entry2) {
@@ -2544,6 +2710,65 @@ var Shakespeare = class _Shakespeare {
     };
   }
   /**
+   * Get detailed ROI analysis for content improvements
+   */
+  async getROIAnalysis() {
+    await this.initialize();
+    const database = this._db.getData();
+    const costSummary = this._db.getCostSummary();
+    let totalInvestment = 0;
+    let totalQualityGain = 0;
+    const contentEfficiency = [];
+    const diminishingReturns = [];
+    for (const [path4, entry] of Object.entries(database.entries)) {
+      if (entry.costAccounting && entry.reviewHistory.length > 0) {
+        const investment = entry.costAccounting.improvementCosts;
+        if (investment > 0) {
+          totalInvestment += investment;
+          let qualityGain = 0;
+          const iterationEfficiency = [];
+          for (let i = 0; i < entry.reviewHistory.length; i++) {
+            const historyEntry = entry.reviewHistory[i];
+            if (historyEntry.improvementMetrics) {
+              const metrics = historyEntry.improvementMetrics;
+              qualityGain += metrics.qualityDelta;
+              totalQualityGain += metrics.qualityDelta;
+              iterationEfficiency.push({
+                iteration: i + 1,
+                cost: historyEntry.costInfo?.cost || 0,
+                qualityGain: metrics.qualityDelta,
+                efficiency: metrics.costPerQualityPoint
+              });
+            }
+          }
+          if (qualityGain > 0) {
+            contentEfficiency.push({
+              path: path4,
+              investment,
+              qualityGain,
+              efficiency: investment / qualityGain,
+              iterations: entry.improvementIterations
+            });
+            if (iterationEfficiency.length > 1) {
+              diminishingReturns.push({
+                path: path4,
+                iterationEfficiency
+              });
+            }
+          }
+        }
+      }
+    }
+    contentEfficiency.sort((a, b) => a.efficiency - b.efficiency);
+    return {
+      totalInvestment,
+      totalQualityGain,
+      averageCostPerQualityPoint: costSummary.averageCostPerQualityPoint,
+      contentEfficiency,
+      diminishingReturns
+    };
+  }
+  /**
    * Get content health status dashboard
    */
   async getStatus() {
@@ -2559,13 +2784,15 @@ var Shakespeare = class _Shakespeare {
     }).filter((score) => !isNaN(score));
     const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     const worstScoring = this.getWorstScoringContent();
+    const costSummary = this._db.getCostSummary();
     return {
       totalFiles: entries.length,
       needsReview,
       needsImprovement,
       meetsTargets,
       averageScore: Math.round(averageScore * 10) / 10,
-      worstScoring
+      worstScoring,
+      costSummary
     };
   }
   // ========== STATIC FACTORY METHODS ==========
@@ -3126,6 +3353,7 @@ COMMANDS
   improve      Improve worst-scoring content
   batch        Batch processing operations (review, improve)
   status       Show content health status dashboard
+  roi          Show ROI analysis and diminishing returns
   workflow     Run complete workflow (discover \u2192 review \u2192 improve)
   config       Configuration management (init, validate, show)
   help         Show this help message
@@ -3144,6 +3372,7 @@ EXAMPLES
   npx shakespeare batch review          # Batch review with parallel processing
   npx shakespeare batch improve 10 3    # Batch improve 10 files, 3 at a time
   npx shakespeare status                # Show content health dashboard
+  npx shakespeare roi                   # Show ROI analysis and diminishing returns
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
   npx shakespeare config validate       # Validate current config
@@ -3310,6 +3539,21 @@ BENEFITS
           }
           console.log("");
         }
+        const costs = status.costSummary;
+        if (costs.totalOperations > 0) {
+          console.log("\u{1F4B0} Cost Analysis:");
+          console.log(`   \u{1F4CA} Total Operations: ${costs.totalOperations}`);
+          console.log(`   \u{1F4B0} Total Cost: $${costs.totalCosts.total.toFixed(4)}`);
+          console.log(`   \u{1F4DD} Review Costs: $${costs.totalCosts.review.toFixed(4)}`);
+          console.log(`   \u{1F680} Improvement Costs: $${costs.totalCosts.improvement.toFixed(4)}`);
+          if (costs.totalCosts.generation > 0) {
+            console.log(`   \u2728 Generation Costs: $${costs.totalCosts.generation.toFixed(4)}`);
+          }
+          if (costs.averageCostPerQualityPoint > 0) {
+            console.log(`   \u{1F4C8} Cost per Quality Point: $${costs.averageCostPerQualityPoint.toFixed(4)}`);
+          }
+          console.log("");
+        }
         if (status.needsReview > 0) {
           console.log("\u{1F504} Recommended Next Steps:");
           console.log(`   1. Run: npx shakespeare review           # Review ${status.needsReview} files`);
@@ -3322,6 +3566,42 @@ BENEFITS
         }
         if (status.needsReview === 0 && status.needsImprovement === 0) {
           console.log("\u{1F389} All content is up to date!");
+        }
+        break;
+      case "roi":
+        console.log("\u{1F4CA} ROI Analysis & Diminishing Returns\n");
+        const roi = await shakespeare.getROIAnalysis();
+        console.log("\u{1F4B0} Investment Overview:");
+        console.log(`   \u{1F4B8} Total Investment: $${roi.totalInvestment.toFixed(4)}`);
+        console.log(`   \u{1F4C8} Total Quality Gain: ${roi.totalQualityGain.toFixed(2)} points`);
+        console.log(`   \u{1F4A1} Average Cost per Quality Point: $${roi.averageCostPerQualityPoint.toFixed(4)}`);
+        console.log("");
+        if (roi.contentEfficiency.length > 0) {
+          console.log("\u{1F3C6} Content Efficiency Rankings (Best ROI first):");
+          roi.contentEfficiency.slice(0, 10).forEach((content, index) => {
+            const filename = content.path.split("/").pop() || content.path;
+            console.log(`   ${index + 1}. ${filename}`);
+            console.log(`      \u{1F4B0} Investment: $${content.investment.toFixed(4)}`);
+            console.log(`      \u{1F4C8} Quality Gain: +${content.qualityGain.toFixed(2)} points`);
+            console.log(`      \u26A1 Efficiency: $${content.efficiency.toFixed(4)}/point`);
+            console.log(`      \u{1F504} Iterations: ${content.iterations}`);
+            console.log("");
+          });
+        }
+        if (roi.diminishingReturns.length > 0) {
+          console.log("\u{1F4C9} Diminishing Returns Analysis:");
+          roi.diminishingReturns.forEach((content) => {
+            const filename = content.path.split("/").pop() || content.path;
+            console.log(`   \u{1F4C4} ${filename}:`);
+            content.iterationEfficiency.forEach((iter) => {
+              const trendIcon = iter.efficiency > 0.01 ? "\u{1F4C8}" : iter.efficiency > 5e-3 ? "\u26A1" : "\u2705";
+              console.log(`      ${trendIcon} Iteration ${iter.iteration}: +${iter.qualityGain.toFixed(2)} points for $${iter.cost.toFixed(4)} ($${iter.efficiency.toFixed(4)}/point)`);
+            });
+            console.log("");
+          });
+        }
+        if (roi.contentEfficiency.length === 0) {
+          console.log("\u2139\uFE0F  No improvement data available yet. Run some improvements to see ROI analysis.");
         }
         break;
       case "workflow":

@@ -122,6 +122,18 @@ export interface IContentDatabase {
     save(): Promise<void>;
     getData(): ContentDatabase;
     updateEntry(entryPath: string, updateFn: (entry: ContentEntry | undefined) => ContentEntry): Promise<void>;
+    addOperationCost(entryPath: string, operation: 'review' | 'improve' | 'generate', costInfo: AICostInfo, qualityBefore?: number, qualityAfter?: number): Promise<void>;
+    getCostSummary(specificPath?: string): {
+        totalCosts: {
+            review: number;
+            improvement: number;
+            generation: number;
+            total: number;
+        };
+        costsByContent: Record<string, any>;
+        averageCostPerQualityPoint: number;
+        totalOperations: number;
+    };
 }
 /**
  * Scoring strategy configuration
@@ -144,6 +156,8 @@ export interface EnhancedAIContentAnalysis {
     totalCost: number;
     /** Cost breakdown per dimension */
     costBreakdown: Record<string, AICostInfo>;
+    /** Consolidated cost information for tracking (backward compatibility) */
+    costInfo?: AICostInfo;
 }
 /**
  * Interface for AI content scoring with cost optimization

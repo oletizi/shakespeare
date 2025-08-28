@@ -37,7 +37,15 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_review' as ContentStatus,
-        reviewHistory: []
+        reviewHistory: [],
+        costAccounting: {
+          reviewCosts: 0,
+          improvementCosts: 0,
+          generationCosts: 0,
+          totalCost: 0,
+          operationHistory: [],
+          lastUpdated: new Date().toISOString()
+        }
       }));
 
       const needingReview = shakespeare.getContentNeedingReview();
@@ -60,7 +68,15 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_review' as ContentStatus,
-        reviewHistory: []
+        reviewHistory: [],
+        costAccounting: {
+          reviewCosts: 0,
+          improvementCosts: 0,
+          generationCosts: 0,
+          totalCost: 0,
+          operationHistory: [],
+          lastUpdated: new Date().toISOString()
+        }
       };
 
       await shakespeare.db.updateEntry('/test2.md', () => testEntry);

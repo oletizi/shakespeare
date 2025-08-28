@@ -1,5 +1,5 @@
-import { ContentDatabase, ContentEntry } from '@/types/content';
-import { IContentDatabase } from '@/types/interfaces';
+import { ContentDatabase, ContentEntry, CostAccounting } from '@/types/content';
+import { IContentDatabase, AICostInfo } from '@/types/interfaces';
 export { ContentDatabase as ContentDatabaseType } from '@/types/content';
 /**
  * Database handler for content tracking
@@ -33,4 +33,30 @@ export declare class ContentDatabaseHandler implements IContentDatabase {
      * Update an entry in the database
      */
     updateEntry(entryPath: string, updateFn: (entry: ContentEntry | undefined) => ContentEntry): Promise<void>;
+    /**
+     * Initialize cost accounting for a new content entry
+     */
+    private initializeCostAccounting;
+    /**
+     * Add cost information to a content entry
+     */
+    addOperationCost(entryPath: string, operation: 'review' | 'improve' | 'generate', costInfo: AICostInfo, qualityBefore?: number, qualityAfter?: number): Promise<void>;
+    /**
+     * Get cost summary for all content or specific content
+     */
+    getCostSummary(specificPath?: string): {
+        totalCosts: {
+            review: number;
+            improvement: number;
+            generation: number;
+            total: number;
+        };
+        costsByContent: Record<string, CostAccounting>;
+        averageCostPerQualityPoint: number;
+        totalOperations: number;
+    };
+    /**
+     * Ensure entry has cost accounting initialized (for backward compatibility)
+     */
+    ensureCostAccounting(entryPath: string): Promise<void>;
 }

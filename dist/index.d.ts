@@ -94,6 +94,10 @@ export declare class Shakespeare {
      */
     reviewContent(path: string): Promise<void>;
     /**
+     * Calculate overall quality score from quality dimensions
+     */
+    private calculateOverallQuality;
+    /**
      * Get the entry with the lowest average score (excludes unreviewed content)
      */
     getWorstScoringContent(): string | null;
@@ -163,6 +167,30 @@ export declare class Shakespeare {
         improvement: WorkflowResult;
     }>;
     /**
+     * Get detailed ROI analysis for content improvements
+     */
+    getROIAnalysis(): Promise<{
+        totalInvestment: number;
+        totalQualityGain: number;
+        averageCostPerQualityPoint: number;
+        contentEfficiency: Array<{
+            path: string;
+            investment: number;
+            qualityGain: number;
+            efficiency: number;
+            iterations: number;
+        }>;
+        diminishingReturns: Array<{
+            path: string;
+            iterationEfficiency: Array<{
+                iteration: number;
+                cost: number;
+                qualityGain: number;
+                efficiency: number;
+            }>;
+        }>;
+    }>;
+    /**
      * Get content health status dashboard
      */
     getStatus(): Promise<{
@@ -172,6 +200,17 @@ export declare class Shakespeare {
         meetsTargets: number;
         averageScore: number;
         worstScoring: string | null;
+        costSummary: {
+            totalCosts: {
+                review: number;
+                improvement: number;
+                generation: number;
+                total: number;
+            };
+            costsByContent: Record<string, any>;
+            averageCostPerQualityPoint: number;
+            totalOperations: number;
+        };
     }>;
     /**
      * Create Shakespeare instance with smart defaults and auto-detection

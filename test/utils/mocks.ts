@@ -1,4 +1,4 @@
-import { IAI, IContentScanner, IContentDatabase, IContentScorer, AIModelOptions, AIResponse, ScoringStrategy, EnhancedAIContentAnalysis } from '@/types/interfaces';
+import { IAI, IContentScanner, IContentDatabase, IContentScorer, AIModelOptions, AIResponse, ScoringStrategy, EnhancedAIContentAnalysis, AICostInfo } from '@/types/interfaces';
 import { ContentDatabase, ContentEntry } from '@/types/content';
 import { AIContentAnalysis } from '@/utils/ai';
 
@@ -101,6 +101,44 @@ export class MockDatabase implements IContentDatabase {
   async updateEntry(entryPath: string, updateFn: (entry: ContentEntry | undefined) => ContentEntry): Promise<void> {
     this.data.entries[entryPath] = updateFn(this.data.entries[entryPath]);
     await this.save();
+  }
+
+  async addOperationCost(entryPath: string, operation: 'review' | 'improve' | 'generate', costInfo: AICostInfo, qualityBefore?: number, qualityAfter?: number): Promise<void> {
+    // Mock implementation - just track the cost
+    const entry = this.data.entries[entryPath];
+    if (entry && entry.costAccounting) {
+      const cost = costInfo.totalCost;
+      switch (operation) {
+        case 'review':
+          entry.costAccounting.reviewCosts += cost;
+          break;
+        case 'improve':
+          entry.costAccounting.improvementCosts += cost;
+          break;
+        case 'generate':
+          entry.costAccounting.generationCosts += cost;
+          break;
+      }
+      entry.costAccounting.totalCost = 
+        entry.costAccounting.reviewCosts + 
+        entry.costAccounting.improvementCosts + 
+        entry.costAccounting.generationCosts;
+    }
+  }
+
+  getCostSummary(specificPath?: string): {
+    totalCosts: { review: number; improvement: number; generation: number; total: number };
+    costsByContent: Record<string, any>;
+    averageCostPerQualityPoint: number;
+    totalOperations: number;
+  } {
+    // Mock implementation - return empty/zero costs
+    return {
+      totalCosts: { review: 0, improvement: 0, generation: 0, total: 0 },
+      costsByContent: {},
+      averageCostPerQualityPoint: 0,
+      totalOperations: 0
+    };
   }
 
   setData(data: ContentDatabase): void {
