@@ -149,8 +149,7 @@ export class Shakespeare {
             seoScore: 0,
             technicalAccuracy: 0,
             engagement: 0,
-            contentDepth: 0,
-            contentIntegrity: 0
+            contentDepth: 0
           },
           targetScores: DEFAULT_TARGET_SCORES,
           lastReviewDate: new Date().toISOString(),
@@ -289,18 +288,8 @@ export class Shakespeare {
 
   /**
    * Calculate overall quality score from quality dimensions
-   * Content integrity is treated as a gating factor - low integrity significantly impacts overall score
    */
   private calculateOverallQuality(scores: QualityDimensions): number {
-    // Content integrity is critical - if it's below 4, cap the overall score
-    if (scores.contentIntegrity < 4) {
-      this.logger.warn('Content integrity is critically low, capping overall quality score', {
-        contentIntegrity: scores.contentIntegrity,
-        operation: 'calculate_overall_quality_integrity_penalty'
-      });
-      return Math.min(3, scores.contentIntegrity); // Can't be better than integrity score
-    }
-    
     const values = Object.values(scores);
     return values.reduce((sum, score) => sum + score, 0) / values.length;
   }
@@ -957,7 +946,6 @@ export class Shakespeare {
           this.log(`      Technical Accuracy: ${updatedEntry.currentScores.technicalAccuracy}/10`);
           this.log(`      Engagement: ${updatedEntry.currentScores.engagement}/10`);
           this.log(`      Content Depth: ${updatedEntry.currentScores.contentDepth}/10`);
-          this.log(`      Content Integrity: ${updatedEntry.currentScores.contentIntegrity}/10`);
           
           const avgScore = this.calculateOverallQuality(updatedEntry.currentScores);
           this.log(`   🎯 Average Score: ${Math.round(avgScore * 10) / 10}/10`);

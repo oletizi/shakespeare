@@ -12,7 +12,6 @@ export function createMockQualityDimensions(overrides?: Partial<QualityDimension
     technicalAccuracy: 7.0,
     engagement: 7.0,
     contentDepth: 7.0,
-    contentIntegrity: 9.0, // Default to good integrity
     ...overrides
   };
 }
@@ -87,8 +86,7 @@ export function createZeroScores(): QualityDimensions {
     seoScore: 0,
     technicalAccuracy: 0,
     engagement: 0,
-    contentDepth: 0,
-    contentIntegrity: 0
+    contentDepth: 0
   };
 }
 
@@ -101,8 +99,7 @@ export function createLowScores(): QualityDimensions {
     seoScore: 4.5,
     technicalAccuracy: 5.0,
     engagement: 4.0,
-    contentDepth: 4.5,
-    contentIntegrity: 7.0 // Even bad content should have decent integrity
+    contentDepth: 4.5
   });
 }
 
@@ -115,7 +112,6 @@ export function createHighScores(): QualityDimensions {
     seoScore: 9.0,
     technicalAccuracy: 9.5,
     engagement: 8.5,
-    contentDepth: 9.0,
-    contentIntegrity: 10.0
+    contentDepth: 9.0
   });
 }

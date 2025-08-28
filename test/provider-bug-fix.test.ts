@@ -30,16 +30,14 @@ describe('Provider Auto-Addition Bug Fix', () => {
         seoScore: 5.0,
         technicalAccuracy: 7.0,
         engagement: 6.5,
-        contentDepth: 5.5,
-        contentIntegrity: 9.0
+        contentDepth: 5.5
       },
       analysis: {
         readability: { reasoning: 'Test', suggestions: [] },
         seoScore: { reasoning: 'Test', suggestions: [] },
         technicalAccuracy: { reasoning: 'Test', suggestions: [] },
         engagement: { reasoning: 'Test', suggestions: [] },
-        contentDepth: { reasoning: 'Test', suggestions: [] },
-        contentIntegrity: { reasoning: 'Test', suggestions: [] }
+        contentDepth: { reasoning: 'Test', suggestions: [] }
       }
     };
 
@@ -77,16 +75,14 @@ describe('Provider Auto-Addition Bug Fix', () => {
         seoScore: 5.0,
         technicalAccuracy: 7.0,
         engagement: 6.5,
-        contentDepth: 5.5,
-        contentIntegrity: 9.0
+        contentDepth: 5.5
       },
       analysis: {
         readability: { reasoning: 'Test', suggestions: [] },
         seoScore: { reasoning: 'Test', suggestions: [] },
         technicalAccuracy: { reasoning: 'Test', suggestions: [] },
         engagement: { reasoning: 'Test', suggestions: [] },
-        contentDepth: { reasoning: 'Test', suggestions: [] },
-        contentIntegrity: { reasoning: 'Test', suggestions: [] }
+        contentDepth: { reasoning: 'Test', suggestions: [] }
       }
     };
 
@@ -115,16 +111,14 @@ describe('Provider Auto-Addition Bug Fix', () => {
         seoScore: 5.0,
         technicalAccuracy: 7.0,
         engagement: 6.5,
-        contentDepth: 5.5,
-        contentIntegrity: 9.0
+        contentDepth: 5.5
       },
       analysis: {
         readability: { reasoning: 'Test', suggestions: [] },
         seoScore: { reasoning: 'Test', suggestions: [] },
         technicalAccuracy: { reasoning: 'Test', suggestions: [] },
         engagement: { reasoning: 'Test', suggestions: [] },
-        contentDepth: { reasoning: 'Test', suggestions: [] },
-        contentIntegrity: { reasoning: 'Test', suggestions: [] }
+        contentDepth: { reasoning: 'Test', suggestions: [] }
       }
     };
 

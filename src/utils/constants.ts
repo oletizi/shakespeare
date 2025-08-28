@@ -8,8 +8,7 @@ export const DEFAULT_TARGET_SCORES: QualityDimensions = {
   seoScore: 8.5,
   technicalAccuracy: 9.0,
   engagement: 8.0,
-  contentDepth: 8.5,
-  contentIntegrity: 9.0  // High target for content integrity - critical for production readiness
+  contentDepth: 8.5
 };
 
 /**

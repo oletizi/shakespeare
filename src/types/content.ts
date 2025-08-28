@@ -7,7 +7,48 @@ export interface QualityDimensions {
   technicalAccuracy: number;
   engagement: number;
   contentDepth: number;
-  contentIntegrity: number;
+}
+
+/**
+ * Content integrity violation types
+ * These are critical issues that MUST be fixed before content is acceptable
+ */
+export enum ContentIntegrityViolationType {
+  // AI-generated artifacts
+  TRUNCATION_MESSAGE = 'truncation_message',
+  AI_COMMENTARY = 'ai_commentary',
+  META_DISCUSSION = 'meta_discussion',
+  
+  // Incomplete content
+  UNCLOSED_CODE_BLOCK = 'unclosed_code_block',
+  INCOMPLETE_SECTION = 'incomplete_section',
+  
+  // Placeholder content
+  TODO_PLACEHOLDER = 'todo_placeholder',
+  EXAMPLE_PLACEHOLDER = 'example_placeholder',
+  INSERT_PLACEHOLDER = 'insert_placeholder',
+  
+  // Structural issues
+  BROKEN_MARKDOWN = 'broken_markdown',
+  MALFORMED_FRONTMATTER = 'malformed_frontmatter'
+}
+
+/**
+ * Content integrity violation details
+ */
+export interface ContentIntegrityViolation {
+  type: ContentIntegrityViolationType;
+  message: string;
+  lineNumber?: number;
+  snippet?: string;
+}
+
+/**
+ * Content integrity validation result
+ */
+export interface ContentIntegrityResult {
+  isValid: boolean;
+  violations: ContentIntegrityViolation[];
 }
 
 /**

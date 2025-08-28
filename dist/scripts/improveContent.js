@@ -317,9 +317,7 @@ var DEFAULT_TARGET_SCORES = {
   seoScore: 8.5,
   technicalAccuracy: 9,
   engagement: 8,
-  contentDepth: 8.5,
-  contentIntegrity: 9
-  // High target for content integrity - critical for production readiness
+  contentDepth: 8.5
 };
 
 // src/utils/goose.ts
@@ -995,6 +993,333 @@ var ContentChunker = class {
   }
 };
 
+// src/utils/content-integrity-validator.ts
+var ContentIntegrityValidator = class _ContentIntegrityValidator {
+  logger;
+  /**
+   * Comprehensive list of patterns that indicate content integrity violations
+   * Each pattern is documented so users understand what's being checked
+   */
+  static VIOLATION_PATTERNS = {
+    // TRUNCATION MESSAGES - AI ran out of tokens or was interrupted
+    truncation: [
+      {
+        pattern: /\[Content truncated due to length limit[^\]]*\]/gi,
+        description: "AI model hit output token limit and truncated content"
+      },
+      {
+        pattern: /\[Content continues\.\.\.\]/gi,
+        description: "Content continuation indicator suggesting incomplete output"
+      },
+      {
+        pattern: /\[Continue with remaining sections[^\]]*\]/gi,
+        description: "Explicit truncation with promise to continue"
+      },
+      {
+        pattern: /\[Remaining content[^\]]*\]/gi,
+        description: "Reference to missing remaining content"
+      },
+      {
+        pattern: /\[Additional sections would include[^\]]*\]/gi,
+        description: "Mention of sections that would be included but aren't"
+      },
+      {
+        pattern: /\[Further sections would cover[^\]]*\]/gi,
+        description: "Reference to further sections that are missing"
+      },
+      {
+        pattern: /\[The rest of the content[^\]]*\]/gi,
+        description: "Reference to rest of content that isn't present"
+      },
+      {
+        pattern: /\[Content shortened for brevity[^\]]*\]/gi,
+        description: "AI shortened content instead of providing full version"
+      },
+      {
+        pattern: /\.\.\.?\s*would continue with[^\.]{0,100}sections?/gi,
+        description: "Natural language truncation indicator"
+      }
+    ],
+    // AI COMMENTARY - Meta discussion about the content instead of the content itself
+    commentary: [
+      {
+        pattern: /^(Here's|Here is) (the|an?) improved/mi,
+        description: "AI commentary about improving content"
+      },
+      {
+        pattern: /^I('ve| have) (improved|enhanced|updated)/mi,
+        description: "First-person AI commentary"
+      },
+      {
+        pattern: /^(Below is|The following is) the improved/mi,
+        description: "AI introduction to improved content"
+      },
+      {
+        pattern: /^Based on the analysis/mi,
+        description: "AI explaining its reasoning"
+      },
+      {
+        pattern: /^After reviewing the content/mi,
+        description: "AI describing its review process"
+      },
+      {
+        pattern: /^(Let me|I'll) (improve|enhance|update)/mi,
+        description: "AI announcing what it will do"
+      }
+    ],
+    // MARKDOWN META ELEMENTS - Special markdown that shouldn't appear in content
+    metaElements: [
+      {
+        pattern: /\*\*Note:\*\*/gi,
+        description: "Meta note that shouldn't be in production content"
+      },
+      {
+        pattern: /\*\*Disclaimer:\*\*/gi,
+        description: "Meta disclaimer that shouldn't be in production content"
+      },
+      {
+        pattern: /\*\*AI Note:\*\*/gi,
+        description: "AI-specific note that shouldn't be in production"
+      }
+    ],
+    // PLACEHOLDER CONTENT - Temporary content that needs to be replaced
+    placeholders: [
+      {
+        pattern: /\[TODO[^\]]*\]/gi,
+        description: "TODO placeholder requiring completion"
+      },
+      {
+        pattern: /\[PLACEHOLDER[^\]]*\]/gi,
+        description: "Explicit placeholder content"
+      },
+      {
+        pattern: /\[INSERT[^\]]*\]/gi,
+        description: "Insert instruction placeholder"
+      },
+      {
+        pattern: /\[ADD[^\]]*\]/gi,
+        description: "Add instruction placeholder"
+      },
+      {
+        pattern: /\[EXAMPLE[^\]]*\]/gi,
+        description: "Example placeholder needing real content"
+      },
+      {
+        pattern: /\[Your[^\]]*here\]/gi,
+        description: "User input placeholder"
+      },
+      {
+        pattern: /\[FIXME[^\]]*\]/gi,
+        description: "Fix-me marker indicating broken content"
+      },
+      {
+        pattern: /XXX/g,
+        description: "Common programmer placeholder marker"
+      }
+    ]
+  };
+  constructor(logger) {
+    this.logger = logger ?? new ShakespeareLogger();
+  }
+  /**
+   * Validate content integrity
+   * Returns a binary result with detailed violation information
+   */
+  validateContent(content, executionId) {
+    const violations = [];
+    const lines = content.split("\n");
+    this.checkViolations(
+      content,
+      lines,
+      _ContentIntegrityValidator.VIOLATION_PATTERNS.truncation,
+      "truncation_message" /* TRUNCATION_MESSAGE */,
+      violations
+    );
+    this.checkViolations(
+      content,
+      lines,
+      _ContentIntegrityValidator.VIOLATION_PATTERNS.commentary,
+      "ai_commentary" /* AI_COMMENTARY */,
+      violations
+    );
+    this.checkViolations(
+      content,
+      lines,
+      _ContentIntegrityValidator.VIOLATION_PATTERNS.metaElements,
+      "meta_discussion" /* META_DISCUSSION */,
+      violations
+    );
+    this.checkViolations(
+      content,
+      lines,
+      _ContentIntegrityValidator.VIOLATION_PATTERNS.placeholders,
+      "todo_placeholder" /* TODO_PLACEHOLDER */,
+      violations
+    );
+    this.checkStructuralIntegrity(content, lines, violations);
+    const isValid = violations.length === 0;
+    if (executionId) {
+      if (isValid) {
+        this.logger.info(`[${executionId}] Content integrity validation PASSED`, {
+          executionId,
+          contentLength: content.length,
+          operation: "content_integrity_validation_passed"
+        });
+      } else {
+        this.logger.error(`[${executionId}] Content integrity validation FAILED`, {
+          executionId,
+          violationCount: violations.length,
+          violations: violations.map((v) => ({ type: v.type, message: v.message })),
+          operation: "content_integrity_validation_failed"
+        });
+      }
+    }
+    return { isValid, violations };
+  }
+  /**
+   * Check for specific violation patterns
+   */
+  checkViolations(content, lines, patterns, violationType, violations) {
+    for (const { pattern, description } of patterns) {
+      const matches = content.matchAll(pattern);
+      for (const match of matches) {
+        const lineNumber = this.getLineNumber(content, match.index || 0);
+        const snippet = this.getSnippet(lines, lineNumber);
+        violations.push({
+          type: violationType,
+          message: description,
+          lineNumber,
+          snippet
+        });
+      }
+    }
+  }
+  /**
+   * Check for structural integrity issues
+   */
+  checkStructuralIntegrity(content, lines, violations) {
+    const codeBlockCount = (content.match(/```/g) || []).length;
+    if (codeBlockCount % 2 !== 0) {
+      violations.push({
+        type: "unclosed_code_block" /* UNCLOSED_CODE_BLOCK */,
+        message: "Unclosed code block detected (odd number of ``` markers)"
+      });
+    }
+    if (content.startsWith("---")) {
+      const frontmatterEnd = content.indexOf("---", 3);
+      if (frontmatterEnd === -1) {
+        violations.push({
+          type: "malformed_frontmatter" /* MALFORMED_FRONTMATTER */,
+          message: "Frontmatter opened but never closed",
+          lineNumber: 1
+        });
+      } else {
+        const frontmatter = content.substring(3, frontmatterEnd);
+        if (frontmatter.includes("---")) {
+          violations.push({
+            type: "malformed_frontmatter" /* MALFORMED_FRONTMATTER */,
+            message: "Multiple --- markers within frontmatter",
+            lineNumber: 1
+          });
+        }
+      }
+    }
+    for (let i = 0; i < lines.length - 1; i++) {
+      const line = lines[i];
+      const nextLine = lines[i + 1];
+      if (/^#{1,6}\s+/.test(line)) {
+        if (i === lines.length - 1 || /^#{1,6}\s+/.test(nextLine) || nextLine.trim() === "") {
+          let hasContent = false;
+          for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+            if (lines[j].trim() && !/^#{1,6}\s+/.test(lines[j])) {
+              hasContent = true;
+              break;
+            }
+          }
+          if (!hasContent && line.trim() !== "#" && !line.includes("[WIP]")) {
+            violations.push({
+              type: "incomplete_section" /* INCOMPLETE_SECTION */,
+              message: `Header "${line.trim()}" has no content`,
+              lineNumber: i + 1,
+              snippet: line
+            });
+          }
+        }
+      }
+    }
+  }
+  /**
+   * Get line number from character index
+   */
+  getLineNumber(content, charIndex) {
+    return content.substring(0, charIndex).split("\n").length;
+  }
+  /**
+   * Get snippet of content around a line
+   */
+  getSnippet(lines, lineNumber, context = 1) {
+    const startLine = Math.max(0, lineNumber - 1 - context);
+    const endLine = Math.min(lines.length, lineNumber + context);
+    return lines.slice(startLine, endLine).map((line, index) => {
+      const currentLineNum = startLine + index + 1;
+      const marker = currentLineNum === lineNumber ? ">>> " : "    ";
+      return `${marker}${currentLineNum}: ${line}`;
+    }).join("\n");
+  }
+  /**
+   * Get a human-readable report of violations
+   */
+  static formatViolationReport(result) {
+    if (result.isValid) {
+      return "\u2705 Content integrity check PASSED - No violations found";
+    }
+    const report = [
+      "\u274C Content integrity check FAILED",
+      `Found ${result.violations.length} violation(s):
+`
+    ];
+    const violationsByType = /* @__PURE__ */ new Map();
+    for (const violation of result.violations) {
+      if (!violationsByType.has(violation.type)) {
+        violationsByType.set(violation.type, []);
+      }
+      violationsByType.get(violation.type).push(violation);
+    }
+    for (const [type, violations] of violationsByType) {
+      report.push(`
+${this.getViolationTypeHeader(type)}:`);
+      for (const violation of violations) {
+        report.push(`  \u2022 ${violation.message}`);
+        if (violation.lineNumber) {
+          report.push(`    Line ${violation.lineNumber}`);
+        }
+        if (violation.snippet) {
+          report.push(`    ${violation.snippet.split("\n").join("\n    ")}`);
+        }
+      }
+    }
+    return report.join("\n");
+  }
+  /**
+   * Get human-readable violation type header
+   */
+  static getViolationTypeHeader(type) {
+    const headers = {
+      ["truncation_message" /* TRUNCATION_MESSAGE */]: "\u{1F6AB} Truncation Issues",
+      ["ai_commentary" /* AI_COMMENTARY */]: "\u{1F916} AI Commentary",
+      ["meta_discussion" /* META_DISCUSSION */]: "\u{1F4DD} Meta Discussion",
+      ["unclosed_code_block" /* UNCLOSED_CODE_BLOCK */]: "\u{1F4BB} Code Block Issues",
+      ["incomplete_section" /* INCOMPLETE_SECTION */]: "\u{1F4C4} Incomplete Sections",
+      ["todo_placeholder" /* TODO_PLACEHOLDER */]: "\u26A0\uFE0F TODO Placeholders",
+      ["example_placeholder" /* EXAMPLE_PLACEHOLDER */]: "\u{1F4CB} Example Placeholders",
+      ["insert_placeholder" /* INSERT_PLACEHOLDER */]: "\u2795 Insert Placeholders",
+      ["broken_markdown" /* BROKEN_MARKDOWN */]: "\u{1F527} Broken Markdown",
+      ["malformed_frontmatter" /* MALFORMED_FRONTMATTER */]: "\u2699\uFE0F Malformed Frontmatter"
+    };
+    return headers[type] || type;
+  }
+};
+
 // src/utils/ai.ts
 import * as fs3 from "fs/promises";
 import * as path3 from "path";
@@ -1103,35 +1428,6 @@ var ANALYSIS_PROMPTS = {
     
     Content to analyze:
     {content}
-    `,
-  contentIntegrity: `
-    Evaluate content integrity and completeness. Look for truncation messages, AI artifacts, incomplete sections, broken code blocks, or placeholder content that indicates the content is not production-ready.
-    
-    You MUST respond in this exact format:
-    
-    SCORE: [number from 0-10]
-    REASONING: [2-3 sentences explaining the score]
-    SUGGESTIONS:
-    - [Specific actionable suggestion 1]
-    - [Specific actionable suggestion 2]
-    - [Specific actionable suggestion 3]
-    
-    Score meanings:
-    0-3: Major integrity issues - contains truncation messages, incomplete sections, or AI artifacts
-    4-6: Some integrity issues - minor placeholders or formatting problems
-    7-8: Good integrity with minor issues - mostly complete and professional
-    9-10: Excellent integrity - complete, professional, production-ready content
-    
-    RED FLAGS TO CHECK FOR:
-    - Truncation messages like "[Content truncated...]", "[Continue with remaining sections...]"
-    - AI commentary like "Here's the improved content" or "I've updated the following"
-    - Placeholder text like "[TODO]", "[PLACEHOLDER]", "[INSERT EXAMPLE]"
-    - Incomplete code blocks (unclosed markdown code fences)
-    - Broken or incomplete sections
-    - Meta-commentary about the content instead of the content itself
-    
-    Content to analyze:
-    {content}
     `
 };
 var IMPROVEMENT_PROMPT = `
@@ -1232,11 +1528,13 @@ var AIScorer = class {
   logger;
   defaultModelOptions;
   chunker;
+  integrityValidator;
   constructor(options = {}) {
     this.ai = options.ai ?? new GooseAI();
     this.logger = options.logger ?? new ShakespeareLogger();
     this.defaultModelOptions = options.defaultModelOptions;
     this.chunker = new ContentChunker({}, this.logger);
+    this.integrityValidator = new ContentIntegrityValidator(this.logger);
   }
   /**
    * Score content across all quality dimensions
@@ -1445,7 +1743,18 @@ var AIScorer = class {
       totalCost,
       operation: "improve_content_chunked_completed"
     });
-    this.validateImprovedContentLength(reassembledContent, content, executionId);
+    const integrityResult = this.integrityValidator.validateContent(reassembledContent, executionId);
+    if (!integrityResult.isValid) {
+      const report = ContentIntegrityValidator.formatViolationReport(integrityResult);
+      this.logger.error(`[${executionId}] Content integrity validation failed`, {
+        executionId,
+        violations: integrityResult.violations,
+        operation: "improve_content_integrity_failed"
+      });
+      throw new Error(`Content integrity validation failed:
+${report}`);
+    }
+    this.validateContentLength(reassembledContent, content, executionId);
     return {
       content: reassembledContent,
       costInfo: {
@@ -1543,13 +1852,12 @@ var AIScorer = class {
     throw new Error(`All ${modelOptions.length} model(s) failed. Last error: ${lastError?.message || "Unknown error"}`);
   }
   /**
-   * Validate improved content for both length and quality issues
+   * Validate content length (warnings only, not a hard failure)
    */
-  validateImprovedContentLength(improvedContent, originalContent, executionId) {
+  validateContentLength(improvedContent, originalContent, executionId) {
     const originalLength = originalContent.length;
     const finalLength = improvedContent.length;
     const lengthRatio = finalLength / originalLength;
-    this.validateContentIntegrity(improvedContent, executionId);
     if (finalLength < originalLength * 0.7) {
       this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
@@ -1578,74 +1886,6 @@ var AIScorer = class {
       });
       console.log(`\u2139\uFE0F  Improved content is longer than original (${Math.round(lengthRatio * 100)}% of original). This may indicate good expansion of ideas.`);
     }
-  }
-  /**
-   * Validate content integrity to catch AI artifacts and incomplete content
-   */
-  validateContentIntegrity(content, executionId) {
-    const integrityIssues = [];
-    const truncationPatterns = [
-      /\[Content truncated due to length limit[^\]]*\]/gi,
-      /\[Content continues\.\.\.\]/gi,
-      /\[Continue with remaining sections[^\]]*\]/gi,
-      /\[Remaining content[^\]]*\]/gi,
-      /\[Additional sections would include[^\]]*\]/gi,
-      /\[Further sections would cover[^\]]*\]/gi,
-      /\[The rest of the content[^\]]*\]/gi,
-      /\[Content shortened for brevity[^\]]*\]/gi,
-      /would continue with.*sections/gi
-    ];
-    for (const pattern of truncationPatterns) {
-      if (pattern.test(content)) {
-        integrityIssues.push(`Contains truncation message: ${pattern.source}`);
-      }
-    }
-    const commentaryPatterns = [
-      /^(Here's|Here is) (the|an?) improved/mi,
-      /^I('ve| have) (improved|enhanced|updated)/mi,
-      /^(Below is|The following is) the improved/mi,
-      /^Based on the analysis/mi,
-      /^After reviewing the content/mi,
-      /\*\*Note:\*\*/gi,
-      /\*\*Disclaimer:\*\*/gi,
-      /^(Let me|I'll) (improve|enhance|update)/mi
-    ];
-    for (const pattern of commentaryPatterns) {
-      if (pattern.test(content)) {
-        integrityIssues.push(`Contains AI commentary: ${pattern.source}`);
-      }
-    }
-    const codeBlockCount = (content.match(/```/g) || []).length;
-    if (codeBlockCount % 2 !== 0) {
-      integrityIssues.push("Contains unclosed code blocks");
-    }
-    const placeholderPatterns = [
-      /\[TODO[^\]]*\]/gi,
-      /\[PLACEHOLDER[^\]]*\]/gi,
-      /\[INSERT[^\]]*\]/gi,
-      /\[ADD[^\]]*\]/gi,
-      /\[EXAMPLE[^\]]*\]/gi,
-      /\[Your[^\]]*here\]/gi
-    ];
-    for (const pattern of placeholderPatterns) {
-      if (pattern.test(content)) {
-        integrityIssues.push(`Contains placeholder: ${pattern.source}`);
-      }
-    }
-    if (integrityIssues.length > 0) {
-      this.logger.error(`[${executionId}] Content integrity validation failed`, {
-        executionId,
-        issues: integrityIssues,
-        contentLength: content.length,
-        operation: "improve_content_integrity_validation_failed"
-      });
-      throw new Error(`Content integrity validation failed: ${integrityIssues.join(", ")}. The AI produced incomplete or inappropriate content.`);
-    }
-    this.logger.info(`[${executionId}] Content integrity validation passed`, {
-      executionId,
-      contentLength: content.length,
-      operation: "improve_content_integrity_validation_passed"
-    });
   }
   processAIResponse(response, executionId, originalContent) {
     this.logger.debug(`[${executionId}] Full AI response content`, {
@@ -1749,7 +1989,17 @@ var AIScorer = class {
       finalContent: improvedContent,
       operation: "improve_content_completed"
     });
-    this.validateContentIntegrity(improvedContent, executionId);
+    const integrityResult = this.integrityValidator.validateContent(improvedContent, executionId);
+    if (!integrityResult.isValid) {
+      const report = ContentIntegrityValidator.formatViolationReport(integrityResult);
+      this.logger.error(`[${executionId}] Content integrity validation failed`, {
+        executionId,
+        violations: integrityResult.violations,
+        operation: "improve_content_integrity_failed"
+      });
+      throw new Error(`Content integrity validation failed:
+${report}`);
+    }
     if (finalLength < originalLength * 0.7) {
       this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
@@ -2117,16 +2367,8 @@ var Shakespeare = class _Shakespeare {
   }
   /**
    * Calculate overall quality score from quality dimensions
-   * Content integrity is treated as a gating factor - low integrity significantly impacts overall score
    */
   calculateOverallQuality(scores) {
-    if (scores.contentIntegrity < 4) {
-      this.logger.warn("Content integrity is critically low, capping overall quality score", {
-        contentIntegrity: scores.contentIntegrity,
-        operation: "calculate_overall_quality_integrity_penalty"
-      });
-      return Math.min(3, scores.contentIntegrity);
-    }
     const values = Object.values(scores);
     return values.reduce((sum, score) => sum + score, 0) / values.length;
   }
@@ -2610,7 +2852,7 @@ var Shakespeare = class _Shakespeare {
           this.log(`      Technical Accuracy: ${updatedEntry.currentScores.technicalAccuracy}/10`);
           this.log(`      Engagement: ${updatedEntry.currentScores.engagement}/10`);
           this.log(`      Content Depth: ${updatedEntry.currentScores.contentDepth}/10`);
-          const avgScore = Object.values(updatedEntry.currentScores).reduce((a, b) => a + b, 0) / 5;
+          const avgScore = this.calculateOverallQuality(updatedEntry.currentScores);
           this.log(`   \u{1F3AF} Average Score: ${Math.round(avgScore * 10) / 10}/10`);
           this.log(`   \u23F1\uFE0F Review Time: ${reviewDuration}ms`, "debug");
         }

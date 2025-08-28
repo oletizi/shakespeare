@@ -3,6 +3,7 @@ import { QualityDimensions } from '@/types/content';
 import { IAI, IContentScorer, ScoringStrategy, EnhancedAIContentAnalysis, AIModelOptions, AIResponse, AICostInfo, ContentChunk } from '@/types/interfaces';
 import { ShakespeareLogger } from '@/utils/logger';
 import { ContentChunker } from '@/utils/chunker';
+import { ContentIntegrityValidator } from '@/utils/content-integrity-validator';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -131,36 +132,6 @@ export const ANALYSIS_PROMPTS = {
     4-6: Basic coverage with some depth, needs expansion
     7-8: Good depth with most aspects covered
     9-10: Comprehensive and thorough coverage
-    
-    Content to analyze:
-    {content}
-    `,
-
-  contentIntegrity: `
-    Evaluate content integrity and completeness. Look for truncation messages, AI artifacts, incomplete sections, broken code blocks, or placeholder content that indicates the content is not production-ready.
-    
-    You MUST respond in this exact format:
-    
-    SCORE: [number from 0-10]
-    REASONING: [2-3 sentences explaining the score]
-    SUGGESTIONS:
-    - [Specific actionable suggestion 1]
-    - [Specific actionable suggestion 2]
-    - [Specific actionable suggestion 3]
-    
-    Score meanings:
-    0-3: Major integrity issues - contains truncation messages, incomplete sections, or AI artifacts
-    4-6: Some integrity issues - minor placeholders or formatting problems
-    7-8: Good integrity with minor issues - mostly complete and professional
-    9-10: Excellent integrity - complete, professional, production-ready content
-    
-    RED FLAGS TO CHECK FOR:
-    - Truncation messages like "[Content truncated...]", "[Continue with remaining sections...]"
-    - AI commentary like "Here's the improved content" or "I've updated the following"
-    - Placeholder text like "[TODO]", "[PLACEHOLDER]", "[INSERT EXAMPLE]"
-    - Incomplete code blocks (unclosed markdown code fences)
-    - Broken or incomplete sections
-    - Meta-commentary about the content instead of the content itself
     
     Content to analyze:
     {content}
@@ -299,12 +270,14 @@ export class AIScorer implements IContentScorer {
   private logger: ShakespeareLogger;
   private defaultModelOptions?: AIModelOptions;
   private chunker: ContentChunker;
+  private integrityValidator: ContentIntegrityValidator;
 
   constructor(options: AIScorerOptions = {}) {
     this.ai = options.ai ?? new GooseAI();
     this.logger = options.logger ?? new ShakespeareLogger();
     this.defaultModelOptions = options.defaultModelOptions;
     this.chunker = new ContentChunker({}, this.logger);
+    this.integrityValidator = new ContentIntegrityValidator(this.logger);
   }
 
   /**
@@ -573,8 +546,20 @@ export class AIScorer implements IContentScorer {
       operation: 'improve_content_chunked_completed'
     });
     
-    // Validate final length
-    this.validateImprovedContentLength(reassembledContent, content, executionId);
+    // Validate content integrity (binary pass/fail)
+    const integrityResult = this.integrityValidator.validateContent(reassembledContent, executionId);
+    if (!integrityResult.isValid) {
+      const report = ContentIntegrityValidator.formatViolationReport(integrityResult);
+      this.logger.error(`[${executionId}] Content integrity validation failed`, {
+        executionId,
+        violations: integrityResult.violations,
+        operation: 'improve_content_integrity_failed'
+      });
+      throw new Error(`Content integrity validation failed:\n${report}`);
+    }
+    
+    // Validate length (warning only, not a hard failure)
+    this.validateContentLength(reassembledContent, content, executionId);
     
     return {
       content: reassembledContent,
@@ -710,18 +695,15 @@ export class AIScorer implements IContentScorer {
   }
 
   /**
-   * Validate improved content for both length and quality issues
+   * Validate content length (warnings only, not a hard failure)
    */
-  private validateImprovedContentLength(improvedContent: string, originalContent: string, executionId: string): void {
+  private validateContentLength(improvedContent: string, originalContent: string, executionId: string): void {
     const originalLength = originalContent.length;
     const finalLength = improvedContent.length;
     const lengthRatio = finalLength / originalLength;
 
-    // First validate content integrity (critical issues that should cause rejection)
-    this.validateContentIntegrity(improvedContent, executionId);
-
-    // Then validate length
     if (finalLength < originalLength * 0.7) {
+      // This is suspicious enough to still throw an error
       this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
         originalLength,
@@ -749,90 +731,6 @@ export class AIScorer implements IContentScorer {
       });
       console.log(`ℹ️  Improved content is longer than original (${Math.round(lengthRatio * 100)}% of original). This may indicate good expansion of ideas.`);
     }
-  }
-
-  /**
-   * Validate content integrity to catch AI artifacts and incomplete content
-   */
-  private validateContentIntegrity(content: string, executionId: string): void {
-    const integrityIssues: string[] = [];
-
-    // Check for truncation messages
-    const truncationPatterns = [
-      /\[Content truncated due to length limit[^\]]*\]/gi,
-      /\[Content continues\.\.\.\]/gi,
-      /\[Continue with remaining sections[^\]]*\]/gi,
-      /\[Remaining content[^\]]*\]/gi,
-      /\[Additional sections would include[^\]]*\]/gi,
-      /\[Further sections would cover[^\]]*\]/gi,
-      /\[The rest of the content[^\]]*\]/gi,
-      /\[Content shortened for brevity[^\]]*\]/gi,
-      /would continue with.*sections/gi
-    ];
-
-    for (const pattern of truncationPatterns) {
-      if (pattern.test(content)) {
-        integrityIssues.push(`Contains truncation message: ${pattern.source}`);
-      }
-    }
-
-    // Check for AI commentary artifacts
-    const commentaryPatterns = [
-      /^(Here's|Here is) (the|an?) improved/mi,
-      /^I('ve| have) (improved|enhanced|updated)/mi,
-      /^(Below is|The following is) the improved/mi,
-      /^Based on the analysis/mi,
-      /^After reviewing the content/mi,
-      /\*\*Note:\*\*/gi,
-      /\*\*Disclaimer:\*\*/gi,
-      /^(Let me|I'll) (improve|enhance|update)/mi
-    ];
-
-    for (const pattern of commentaryPatterns) {
-      if (pattern.test(content)) {
-        integrityIssues.push(`Contains AI commentary: ${pattern.source}`);
-      }
-    }
-
-    // Check for incomplete code blocks
-    const codeBlockCount = (content.match(/```/g) || []).length;
-    if (codeBlockCount % 2 !== 0) {
-      integrityIssues.push('Contains unclosed code blocks');
-    }
-
-    // Check for placeholder content
-    const placeholderPatterns = [
-      /\[TODO[^\]]*\]/gi,
-      /\[PLACEHOLDER[^\]]*\]/gi,
-      /\[INSERT[^\]]*\]/gi,
-      /\[ADD[^\]]*\]/gi,
-      /\[EXAMPLE[^\]]*\]/gi,
-      /\[Your[^\]]*here\]/gi
-    ];
-
-    for (const pattern of placeholderPatterns) {
-      if (pattern.test(content)) {
-        integrityIssues.push(`Contains placeholder: ${pattern.source}`);
-      }
-    }
-
-    // If we found integrity issues, log and throw error
-    if (integrityIssues.length > 0) {
-      this.logger.error(`[${executionId}] Content integrity validation failed`, {
-        executionId,
-        issues: integrityIssues,
-        contentLength: content.length,
-        operation: 'improve_content_integrity_validation_failed'
-      });
-      
-      throw new Error(`Content integrity validation failed: ${integrityIssues.join(', ')}. The AI produced incomplete or inappropriate content.`);
-    }
-
-    this.logger.info(`[${executionId}] Content integrity validation passed`, {
-      executionId,
-      contentLength: content.length,
-      operation: 'improve_content_integrity_validation_passed'
-    });
   }
 
   private processAIResponse(response: AIResponse, executionId: string, originalContent: string): AIResponse {
@@ -980,10 +878,19 @@ export class AIScorer implements IContentScorer {
       operation: 'improve_content_completed'
     });
     
-    // Validate content integrity before length validation
-    this.validateContentIntegrity(improvedContent, executionId);
+    // Validate content integrity (binary pass/fail gate)
+    const integrityResult = this.integrityValidator.validateContent(improvedContent, executionId);
+    if (!integrityResult.isValid) {
+      const report = ContentIntegrityValidator.formatViolationReport(integrityResult);
+      this.logger.error(`[${executionId}] Content integrity validation failed`, {
+        executionId,
+        violations: integrityResult.violations,
+        operation: 'improve_content_integrity_failed'
+      });
+      throw new Error(`Content integrity validation failed:\n${report}`);
+    }
     
-    // Implement tiered length validation
+    // Validate length (warning only, not a hard failure)
     if (finalLength < originalLength * 0.7) {
       this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
