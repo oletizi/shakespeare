@@ -1275,22 +1275,31 @@ var AIScorer = class {
       return this.improveContentWithModels(content, analysis, [void 0]);
     }
   }
-  async improveContentWithModels(content, analysis, modelOptions) {
+  async improveContentWithModels(content, analysis, modelOptions, filePath) {
     if (!modelOptions || modelOptions.length === 0) {
       throw new Error("At least one model option must be provided");
     }
     if (this.chunker.shouldChunkContent(content)) {
-      return this.improveContentWithChunking(content, analysis, modelOptions);
+      return this.improveContentWithChunking(content, analysis, modelOptions, void 0, filePath);
     }
     return this.improveSingleContent(content, analysis, modelOptions);
   }
   /**
    * Resume an interrupted chunk improvement
    */
-  async resumeChunkedImprovement(executionId, content, analysis, modelOptions) {
-    const finalModelOptions = modelOptions || this.getDefaultModelOptions("improve");
+  async resumeChunkedImprovement(executionId) {
     this.logger.info(`Resuming chunked improvement ${executionId}`);
-    return this.improveContentWithChunking(content, analysis, finalModelOptions, executionId);
+    const progress = await this.loadChunkProgress(executionId);
+    if (!progress.originalContent || !progress.analysis) {
+      throw new Error(`Cannot resume ${executionId}: missing original content or analysis data`);
+    }
+    const modelOptions = progress.modelOptions || this.getDefaultModelOptions("improve");
+    return this.improveContentWithChunking(
+      progress.originalContent,
+      progress.analysis,
+      modelOptions,
+      executionId
+    );
   }
   /**
    * Get default model options for a task
@@ -1311,7 +1320,7 @@ var AIScorer = class {
   /**
    * Improve large content using chunking approach
    */
-  async improveContentWithChunking(content, analysis, modelOptions, providedExecutionId) {
+  async improveContentWithChunking(content, analysis, modelOptions, providedExecutionId, filePath) {
     const executionId = providedExecutionId || `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     this.logger.info(`[${executionId}] Starting chunked content improvement at ${timestamp}`, {
@@ -1328,6 +1337,21 @@ var AIScorer = class {
       operation: "improve_content_chunks_created"
     });
     const chunkProgress = await this.loadChunkProgress(executionId);
+    if (!providedExecutionId) {
+      await this.saveChunkProgress(executionId, {
+        originalContent: content,
+        analysis,
+        chunks: chunks.map((c) => ({ ...c, content: c.content })),
+        // Store original chunks
+        improvedChunks: [],
+        totalCost: 0,
+        lastProcessedIndex: -1,
+        totalChunks: chunks.length,
+        modelOptions,
+        startTime: (/* @__PURE__ */ new Date()).toISOString(),
+        filePath
+      });
+    }
     const improvedChunks = chunkProgress.improvedChunks || [];
     let totalCost = chunkProgress.totalCost || 0;
     for (let i = 0; i < chunks.length; i++) {
@@ -2439,7 +2463,7 @@ var Shakespeare = class _Shakespeare {
           }
           this.logger.info(`\u{1F4DD} Attempting to improve content with ${content.length} characters...`);
           const modelOptionsArray = await this.getWorkflowModelOptions("improve");
-          const response = await this.ai.improveContentWithModels(content, analysis.analysis, modelOptionsArray);
+          const response = await this.ai.improveContentWithModels(content, analysis.analysis, modelOptionsArray, absoluteFilePath);
           const improvedContent = response.content;
           this.logger.info(`\u2705 Content improvement successful, got ${improvedContent.length} characters back`);
           if (improvedContent === content) {
@@ -2920,7 +2944,103 @@ var Shakespeare = class _Shakespeare {
    * Resume a progress job by execution ID
    */
   async resumeProgressJob(executionId) {
-    throw new Error("Resume functionality requires the original content and analysis data. This feature needs integration with the specific improvement workflow.");
+    await this.initialize();
+    const progressDir = path4.join(this.rootDir, ".shakespeare", "progress");
+    const progressPath = path4.join(progressDir, `${executionId}.json`);
+    let progress;
+    try {
+      const content = await fs4.readFile(progressPath, "utf-8");
+      progress = JSON.parse(content);
+    } catch (error) {
+      throw new Error(`Progress file not found for execution ID: ${executionId}`);
+    }
+    if (!progress.originalContent || !progress.analysis) {
+      throw new Error(`Progress file ${executionId} is missing required data (originalContent or analysis)`);
+    }
+    const result = await this.ai.resumeChunkedImprovement(executionId);
+    const database = this._db.getData();
+    let matchingEntry = null;
+    let databaseKey = null;
+    if (progress.filePath) {
+      databaseKey = Object.keys(database.entries).find(
+        (key) => database.entries[key].path === progress.filePath
+      ) || null;
+      if (databaseKey) {
+        matchingEntry = database.entries[databaseKey];
+      }
+    }
+    if (!matchingEntry || !databaseKey) {
+      for (const [key, entry] of Object.entries(database.entries)) {
+        try {
+          const fileContent = await this.scanner.readContent(entry.path);
+          if (fileContent === progress.originalContent) {
+            matchingEntry = entry;
+            databaseKey = key;
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+    if (!matchingEntry || !databaseKey) {
+      this.logger.warn(`Could not find matching database entry for resumed job ${executionId}`);
+    }
+    if (matchingEntry && databaseKey && result.costInfo) {
+      const qualityBefore = this.calculateOverallQuality(progress.analysis.scores);
+      const newAnalysis = await this.ai.scoreContent(result.content);
+      const qualityAfter = this.calculateOverallQuality(newAnalysis.analysis.scores);
+      await this._db.addOperationCost(databaseKey, "improve", result.costInfo, qualityBefore, qualityAfter);
+      if (newAnalysis.costInfo) {
+        await this._db.addOperationCost(databaseKey, "review", newAnalysis.costInfo);
+      }
+      await this._db.updateEntry(databaseKey, (entry) => {
+        if (!entry) throw new Error(`Entry not found: ${databaseKey}`);
+        return {
+          ...entry,
+          currentScores: newAnalysis.analysis.scores,
+          lastReviewDate: (/* @__PURE__ */ new Date()).toISOString(),
+          improvementIterations: entry.improvementIterations + 1,
+          status: this.determineStatus(newAnalysis.analysis.scores),
+          reviewHistory: [
+            ...entry.reviewHistory,
+            {
+              date: (/* @__PURE__ */ new Date()).toISOString(),
+              scores: newAnalysis.analysis.scores,
+              improvements: Object.values(newAnalysis.analysis).flatMap((d) => d.suggestions || []),
+              costInfo: result.costInfo,
+              improvementMetrics: {
+                scoreBefore: qualityBefore,
+                scoreAfter: qualityAfter,
+                qualityDelta: qualityAfter - qualityBefore,
+                costPerQualityPoint: qualityAfter > qualityBefore ? result.costInfo.totalCost / (qualityAfter - qualityBefore) : 0,
+                iterationNumber: entry.improvementIterations + 1
+              }
+            }
+          ]
+        };
+      });
+      if (progress.filePath) {
+        try {
+          await fs4.writeFile(progress.filePath, result.content, "utf-8");
+          this.logger.info(`\u{1F4C4} Successfully wrote improved content to ${progress.filePath}`);
+        } catch (writeError) {
+          const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+          this.logger.error(`\u274C Failed to write improved content to file: ${errorMessage}`);
+          throw writeError;
+        }
+      }
+    }
+    try {
+      await fs4.unlink(progressPath);
+      this.logger.info(`Cleaned up progress file for completed job: ${executionId}`);
+    } catch (error) {
+      this.logger.warn(`Could not clean up progress file: ${error}`);
+    }
+    return {
+      totalCost: result.costInfo.totalCost,
+      contentLength: result.content.length
+    };
   }
   /**
    * Get content health status dashboard

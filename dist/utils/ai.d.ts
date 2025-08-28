@@ -63,11 +63,11 @@ export declare class AIScorer implements IContentScorer {
      * This is the single entry point for content improvement
      */
     improveContent(content: string, analysis: AIContentAnalysis, options?: AIModelOptions): Promise<AIResponse>;
-    improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse>;
+    improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[], filePath?: string): Promise<AIResponse>;
     /**
      * Resume an interrupted chunk improvement
      */
-    resumeChunkedImprovement(executionId: string, content: string, analysis: AIContentAnalysis, modelOptions?: AIModelOptions[]): Promise<AIResponse>;
+    resumeChunkedImprovement(executionId: string): Promise<AIResponse>;
     /**
      * Get default model options for a task
      */

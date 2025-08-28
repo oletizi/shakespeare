@@ -574,8 +574,8 @@ export class Shakespeare {
           // Get workflow-specific model options array for improvement (includes fallbacks)
           const modelOptionsArray = await this.getWorkflowModelOptions('improve');
           
-          // Call the unified improveContent method with model array
-          const response = await (this.ai as any).improveContentWithModels(content, analysis.analysis, modelOptionsArray);
+          // Call the unified improveContent method with model array and file path
+          const response = await (this.ai as any).improveContentWithModels(content, analysis.analysis, modelOptionsArray, absoluteFilePath);
           const improvedContent = response.content;
           
           this.logger.info(`✅ Content improvement successful, got ${improvedContent.length} characters back`);
@@ -1228,10 +1228,135 @@ export class Shakespeare {
     totalCost: number;
     contentLength: number;
   }> {
-    // This would require the original content and analysis
-    // For now, we'll provide a basic implementation that shows how it could work
-    throw new Error('Resume functionality requires the original content and analysis data. ' +
-      'This feature needs integration with the specific improvement workflow.');
+    await this.initialize();
+    
+    // Load progress data to get original content path and other details
+    const progressDir = path.join(this.rootDir, '.shakespeare', 'progress');
+    const progressPath = path.join(progressDir, `${executionId}.json`);
+    
+    let progress: any;
+    try {
+      const content = await fs.readFile(progressPath, 'utf-8');
+      progress = JSON.parse(content);
+    } catch (error) {
+      throw new Error(`Progress file not found for execution ID: ${executionId}`);
+    }
+    
+    if (!progress.originalContent || !progress.analysis) {
+      throw new Error(`Progress file ${executionId} is missing required data (originalContent or analysis)`);
+    }
+    
+    // Resume the AI improvement using the stored data
+    const result = await (this.ai as any).resumeChunkedImprovement(executionId);
+    
+    // Find the database entry to update using stored file path
+    const database = this._db.getData();
+    let matchingEntry: any = null;
+    let databaseKey: string | null = null;
+    
+    if (progress.filePath) {
+      // Try to find by stored file path first
+      databaseKey = Object.keys(database.entries).find(key => 
+        database.entries[key].path === progress.filePath
+      ) || null;
+      if (databaseKey) {
+        matchingEntry = database.entries[databaseKey];
+      }
+    }
+    
+    // Fallback: match by content if file path lookup failed
+    if (!matchingEntry || !databaseKey) {
+      for (const [key, entry] of Object.entries(database.entries)) {
+        try {
+          const fileContent = await this.scanner.readContent(entry.path);
+          if (fileContent === progress.originalContent) {
+            matchingEntry = entry;
+            databaseKey = key;
+            break;
+          }
+        } catch {
+          // Skip files that can't be read
+          continue;
+        }
+      }
+    }
+    
+    if (!matchingEntry || !databaseKey) {
+      this.logger.warn(`Could not find matching database entry for resumed job ${executionId}`);
+      // Continue with the improvement but skip database updates
+    }
+    
+    // Update cost tracking in database if we found the entry
+    if (matchingEntry && databaseKey && result.costInfo) {
+      // Calculate quality metrics for the improvement
+      const qualityBefore = this.calculateOverallQuality(progress.analysis.scores);
+      
+      // Score the improved content to get quality after
+      const newAnalysis = await this.ai.scoreContent(result.content);
+      const qualityAfter = this.calculateOverallQuality(newAnalysis.analysis.scores);
+      
+      // Track the improvement cost
+      await this._db.addOperationCost(databaseKey, 'improve', result.costInfo, qualityBefore, qualityAfter);
+      
+      // Track the final scoring cost
+      if (newAnalysis.costInfo) {
+        await this._db.addOperationCost(databaseKey, 'review', newAnalysis.costInfo);
+      }
+      
+      // Update the database entry with new scores and status
+      await this._db.updateEntry(databaseKey, (entry) => {
+        if (!entry) throw new Error(`Entry not found: ${databaseKey}`);
+        
+        return {
+          ...entry,
+          currentScores: newAnalysis.analysis.scores,
+          lastReviewDate: new Date().toISOString(),
+          improvementIterations: entry.improvementIterations + 1,
+          status: this.determineStatus(newAnalysis.analysis.scores),
+          reviewHistory: [
+            ...entry.reviewHistory,
+            {
+              date: new Date().toISOString(),
+              scores: newAnalysis.analysis.scores,
+              improvements: Object.values(newAnalysis.analysis).flatMap((d: any) => d.suggestions || []),
+              costInfo: result.costInfo,
+              improvementMetrics: {
+                scoreBefore: qualityBefore,
+                scoreAfter: qualityAfter,
+                qualityDelta: qualityAfter - qualityBefore,
+                costPerQualityPoint: qualityAfter > qualityBefore ? result.costInfo.totalCost / (qualityAfter - qualityBefore) : 0,
+                iterationNumber: entry.improvementIterations + 1
+              }
+            }
+          ]
+        };
+      });
+      
+      // Write the improved content back to the file
+      if (progress.filePath) {
+        try {
+          await fs.writeFile(progress.filePath, result.content, 'utf-8');
+          this.logger.info(`📄 Successfully wrote improved content to ${progress.filePath}`);
+        } catch (writeError) {
+          const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+          this.logger.error(`❌ Failed to write improved content to file: ${errorMessage}`);
+          throw writeError;
+        }
+      }
+    }
+    
+    // Clean up the progress file since job is complete
+    try {
+      await fs.unlink(progressPath);
+      this.logger.info(`Cleaned up progress file for completed job: ${executionId}`);
+    } catch (error) {
+      this.logger.warn(`Could not clean up progress file: ${error}`);
+    }
+    
+    return {
+      totalCost: result.costInfo.totalCost,
+      contentLength: result.content.length
+    };
   }
 
   /**

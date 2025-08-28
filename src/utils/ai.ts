@@ -364,14 +364,14 @@ export class AIScorer implements IContentScorer {
     }
   }
 
-  async improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[]): Promise<AIResponse> {
+  async improveContentWithModels(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[], filePath?: string): Promise<AIResponse> {
     if (!modelOptions || modelOptions.length === 0) {
       throw new Error('At least one model option must be provided');
     }
     
     // Check if content should be chunked
     if (this.chunker.shouldChunkContent(content)) {
-      return this.improveContentWithChunking(content, analysis, modelOptions);
+      return this.improveContentWithChunking(content, analysis, modelOptions, undefined, filePath);
     }
     
     // Use single-pass improvement for smaller content
@@ -381,13 +381,25 @@ export class AIScorer implements IContentScorer {
   /**
    * Resume an interrupted chunk improvement
    */
-  async resumeChunkedImprovement(executionId: string, content: string, analysis: AIContentAnalysis, modelOptions?: AIModelOptions[]): Promise<AIResponse> {
-    const finalModelOptions = modelOptions || this.getDefaultModelOptions('improve');
-    
+  async resumeChunkedImprovement(executionId: string): Promise<AIResponse> {
     this.logger.info(`Resuming chunked improvement ${executionId}`);
     
-    // Load existing progress and continue
-    return this.improveContentWithChunking(content, analysis, finalModelOptions, executionId);
+    // Load progress data
+    const progress = await this.loadChunkProgress(executionId);
+    
+    if (!progress.originalContent || !progress.analysis) {
+      throw new Error(`Cannot resume ${executionId}: missing original content or analysis data`);
+    }
+    
+    const modelOptions = progress.modelOptions || this.getDefaultModelOptions('improve');
+    
+    // Continue with stored data
+    return this.improveContentWithChunking(
+      progress.originalContent, 
+      progress.analysis, 
+      modelOptions, 
+      executionId
+    );
   }
 
   /**
@@ -411,7 +423,7 @@ export class AIScorer implements IContentScorer {
   /**
    * Improve large content using chunking approach
    */
-  private async improveContentWithChunking(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[], providedExecutionId?: string): Promise<AIResponse> {
+  private async improveContentWithChunking(content: string, analysis: AIContentAnalysis, modelOptions: AIModelOptions[], providedExecutionId?: string, filePath?: string): Promise<AIResponse> {
     const executionId = providedExecutionId || `improve-chunked-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
     
@@ -434,6 +446,22 @@ export class AIScorer implements IContentScorer {
     
     // Initialize chunk progress tracking
     const chunkProgress = await this.loadChunkProgress(executionId);
+    
+    // Store original content and analysis for resume functionality (only if not resuming)
+    if (!providedExecutionId) {
+      await this.saveChunkProgress(executionId, {
+        originalContent: content,
+        analysis: analysis,
+        chunks: chunks.map(c => ({ ...c, content: c.content })), // Store original chunks
+        improvedChunks: [],
+        totalCost: 0,
+        lastProcessedIndex: -1,
+        totalChunks: chunks.length,
+        modelOptions: modelOptions,
+        startTime: new Date().toISOString(),
+        filePath: filePath
+      });
+    }
     
     // Improve each chunk
     const improvedChunks: ContentChunk[] = chunkProgress.improvedChunks || [];
