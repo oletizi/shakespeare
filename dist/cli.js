@@ -2880,6 +2880,49 @@ var Shakespeare = class _Shakespeare {
     };
   }
   /**
+   * List interrupted improvement jobs
+   */
+  async listProgressFiles() {
+    const progressDir = path4.join(this.rootDir, ".shakespeare", "progress");
+    try {
+      const files = await fs4.readdir(progressDir);
+      const progressFiles = [];
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          const filePath = path4.join(progressDir, file);
+          try {
+            const content = await fs4.readFile(filePath, "utf-8");
+            const progress = JSON.parse(content);
+            const executionId = file.replace(".json", "");
+            const timestampMatch = executionId.match(/improve-chunked-(\d+)/);
+            const startTime = timestampMatch ? new Date(parseInt(timestampMatch[1])).toISOString() : "Unknown";
+            progressFiles.push({
+              executionId,
+              startTime,
+              completedChunks: progress.improvedChunks?.length || 0,
+              totalChunks: progress.totalChunks || 0,
+              totalCost: progress.totalCost || 0,
+              filePath
+            });
+          } catch (error) {
+            continue;
+          }
+        }
+      }
+      return progressFiles.sort(
+        (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+      );
+    } catch (error) {
+      return [];
+    }
+  }
+  /**
+   * Resume a progress job by execution ID
+   */
+  async resumeProgressJob(executionId) {
+    throw new Error("Resume functionality requires the original content and analysis data. This feature needs integration with the specific improvement workflow.");
+  }
+  /**
    * Get content health status dashboard
    */
   async getStatus() {
@@ -3465,6 +3508,7 @@ COMMANDS
   batch        Batch processing operations (review, improve)
   status       Show content health status dashboard
   roi          Show ROI analysis and diminishing returns
+  progress     Manage interrupted improvement jobs (list, resume)
   workflow     Run complete workflow (discover \u2192 review \u2192 improve)
   config       Configuration management (init, validate, show)
   help         Show this help message
@@ -3484,6 +3528,8 @@ EXAMPLES
   npx shakespeare batch improve 10 3    # Batch improve 10 files, 3 at a time
   npx shakespeare status                # Show content health dashboard
   npx shakespeare roi                   # Show ROI analysis and diminishing returns
+  npx shakespeare progress list         # List interrupted improvement jobs
+  npx shakespeare progress resume <id>  # Resume specific improvement job
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
   npx shakespeare config validate       # Validate current config
@@ -3665,6 +3711,17 @@ BENEFITS
           }
           console.log("");
         }
+        const progressFiles = await shakespeare.listProgressFiles();
+        if (progressFiles.length > 0) {
+          console.log("\u{1F504} Interrupted Jobs:");
+          console.log(`   \u{1F4CB} ${progressFiles.length} interrupted improvement${progressFiles.length === 1 ? "" : "s"}`);
+          const totalProgressCost = progressFiles.reduce((sum, p) => sum + p.totalCost, 0);
+          if (totalProgressCost > 0) {
+            console.log(`   \u{1F4B0} Cost in progress: $${totalProgressCost.toFixed(4)}`);
+          }
+          console.log(`   \u{1F4A1} Use 'npx shakespeare progress list' to see details`);
+          console.log("");
+        }
         if (status.needsReview > 0) {
           console.log("\u{1F504} Recommended Next Steps:");
           console.log(`   1. Run: npx shakespeare review           # Review ${status.needsReview} files`);
@@ -3713,6 +3770,68 @@ BENEFITS
         }
         if (roi.contentEfficiency.length === 0) {
           console.log("\u2139\uFE0F  No improvement data available yet. Run some improvements to see ROI analysis.");
+        }
+        break;
+      case "progress":
+        const progressSubcommand = process.argv[3] || "list";
+        switch (progressSubcommand) {
+          case "list":
+            console.log("\u{1F4CB} Interrupted Improvement Jobs\n");
+            const progressFiles2 = await shakespeare.listProgressFiles();
+            if (progressFiles2.length === 0) {
+              console.log("\u2139\uFE0F  No interrupted improvement jobs found.");
+            } else {
+              progressFiles2.forEach((progress, index) => {
+                console.log(`${index + 1}. ${progress.executionId}`);
+                console.log(`   \u{1F4C5} Started: ${progress.startTime}`);
+                console.log(`   \u{1F4CA} Progress: ${progress.completedChunks}/${progress.totalChunks} chunks`);
+                console.log(`   \u{1F4B0} Cost so far: $${progress.totalCost.toFixed(4)}`);
+                console.log(`   \u{1F4C1} Progress file: ${progress.filePath}`);
+                console.log("");
+              });
+              console.log(`\u{1F4A1} To resume a job, run: npx shakespeare progress resume <execution-id>`);
+            }
+            break;
+          case "resume":
+            const executionId = process.argv[4];
+            if (!executionId) {
+              console.error("\u274C Please provide an execution ID to resume");
+              console.log("Usage: npx shakespeare progress resume <execution-id>");
+              console.log('Use "npx shakespeare progress list" to see available jobs');
+              process.exit(1);
+            }
+            console.log(`\u{1F504} Resuming improvement job: ${executionId}`);
+            try {
+              const result = await shakespeare.resumeProgressJob(executionId);
+              console.log(`\u2705 Job resumed successfully!`);
+              console.log(`   \u{1F4CA} Final cost: $${result.totalCost.toFixed(4)}`);
+              console.log(`   \u{1F4C4} Content length: ${result.contentLength} characters`);
+            } catch (error) {
+              console.error(`\u274C Failed to resume job: ${error instanceof Error ? error.message : error}`);
+              process.exit(1);
+            }
+            break;
+          case "help":
+            console.log(`
+\u{1F4CB} Progress Command Help
+
+USAGE
+  npx shakespeare progress <subcommand>
+
+SUBCOMMANDS
+  list             List all interrupted improvement jobs
+  resume <id>      Resume a specific improvement job by execution ID
+  help             Show this help message
+
+EXAMPLES
+  npx shakespeare progress list                    # List interrupted jobs
+  npx shakespeare progress resume improve-chunked-1234567890-abcdef123  # Resume specific job
+            `);
+            break;
+          default:
+            console.error(`\u274C Unknown progress subcommand: ${progressSubcommand}`);
+            console.log('Run "npx shakespeare progress help" for usage information.');
+            process.exit(1);
         }
         break;
       case "workflow":

@@ -191,6 +191,24 @@ export declare class Shakespeare {
         }>;
     }>;
     /**
+     * List interrupted improvement jobs
+     */
+    listProgressFiles(): Promise<Array<{
+        executionId: string;
+        startTime: string;
+        completedChunks: number;
+        totalChunks: number;
+        totalCost: number;
+        filePath: string;
+    }>>;
+    /**
+     * Resume a progress job by execution ID
+     */
+    resumeProgressJob(executionId: string): Promise<{
+        totalCost: number;
+        contentLength: number;
+    }>;
+    /**
      * Get content health status dashboard
      */
     getStatus(): Promise<{

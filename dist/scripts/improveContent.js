@@ -2639,6 +2639,49 @@ var Shakespeare = class _Shakespeare {
     };
   }
   /**
+   * List interrupted improvement jobs
+   */
+  async listProgressFiles() {
+    const progressDir = path4.join(this.rootDir, ".shakespeare", "progress");
+    try {
+      const files = await fs4.readdir(progressDir);
+      const progressFiles = [];
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          const filePath = path4.join(progressDir, file);
+          try {
+            const content = await fs4.readFile(filePath, "utf-8");
+            const progress = JSON.parse(content);
+            const executionId = file.replace(".json", "");
+            const timestampMatch = executionId.match(/improve-chunked-(\d+)/);
+            const startTime = timestampMatch ? new Date(parseInt(timestampMatch[1])).toISOString() : "Unknown";
+            progressFiles.push({
+              executionId,
+              startTime,
+              completedChunks: progress.improvedChunks?.length || 0,
+              totalChunks: progress.totalChunks || 0,
+              totalCost: progress.totalCost || 0,
+              filePath
+            });
+          } catch (error) {
+            continue;
+          }
+        }
+      }
+      return progressFiles.sort(
+        (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+      );
+    } catch (error) {
+      return [];
+    }
+  }
+  /**
+   * Resume a progress job by execution ID
+   */
+  async resumeProgressJob(executionId) {
+    throw new Error("Resume functionality requires the original content and analysis data. This feature needs integration with the specific improvement workflow.");
+  }
+  /**
    * Get content health status dashboard
    */
   async getStatus() {

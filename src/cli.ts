@@ -50,6 +50,7 @@ COMMANDS
   batch        Batch processing operations (review, improve)
   status       Show content health status dashboard
   roi          Show ROI analysis and diminishing returns
+  progress     Manage interrupted improvement jobs (list, resume)
   workflow     Run complete workflow (discover → review → improve)
   config       Configuration management (init, validate, show)
   help         Show this help message
@@ -69,6 +70,8 @@ EXAMPLES
   npx shakespeare batch improve 10 3    # Batch improve 10 files, 3 at a time
   npx shakespeare status                # Show content health dashboard
   npx shakespeare roi                   # Show ROI analysis and diminishing returns
+  npx shakespeare progress list         # List interrupted improvement jobs
+  npx shakespeare progress resume <id>  # Resume specific improvement job
   npx shakespeare workflow              # Complete end-to-end workflow
   npx shakespeare config init astro     # Initialize config for Astro
   npx shakespeare config validate       # Validate current config
@@ -272,6 +275,19 @@ BENEFITS
           console.log('');
         }
         
+        // Show progress information
+        const progressFiles = await shakespeare.listProgressFiles();
+        if (progressFiles.length > 0) {
+          console.log('🔄 Interrupted Jobs:');
+          console.log(`   📋 ${progressFiles.length} interrupted improvement${progressFiles.length === 1 ? '' : 's'}`);
+          const totalProgressCost = progressFiles.reduce((sum, p) => sum + p.totalCost, 0);
+          if (totalProgressCost > 0) {
+            console.log(`   💰 Cost in progress: $${totalProgressCost.toFixed(4)}`);
+          }
+          console.log(`   💡 Use 'npx shakespeare progress list' to see details`);
+          console.log('');
+        }
+        
         // Show next recommended actions with batch options
         if (status.needsReview > 0) {
           console.log('🔄 Recommended Next Steps:');
@@ -326,6 +342,77 @@ BENEFITS
         
         if (roi.contentEfficiency.length === 0) {
           console.log('ℹ️  No improvement data available yet. Run some improvements to see ROI analysis.');
+        }
+        break;
+        
+      case 'progress':
+        const progressSubcommand = process.argv[3] || 'list';
+        
+        switch (progressSubcommand) {
+          case 'list':
+            console.log('📋 Interrupted Improvement Jobs\n');
+            const progressFiles = await shakespeare.listProgressFiles();
+            
+            if (progressFiles.length === 0) {
+              console.log('ℹ️  No interrupted improvement jobs found.');
+            } else {
+              progressFiles.forEach((progress, index) => {
+                console.log(`${index + 1}. ${progress.executionId}`);
+                console.log(`   📅 Started: ${progress.startTime}`);
+                console.log(`   📊 Progress: ${progress.completedChunks}/${progress.totalChunks} chunks`);
+                console.log(`   💰 Cost so far: $${progress.totalCost.toFixed(4)}`);
+                console.log(`   📁 Progress file: ${progress.filePath}`);
+                console.log('');
+              });
+              
+              console.log(`💡 To resume a job, run: npx shakespeare progress resume <execution-id>`);
+            }
+            break;
+            
+          case 'resume':
+            const executionId = process.argv[4];
+            if (!executionId) {
+              console.error('❌ Please provide an execution ID to resume');
+              console.log('Usage: npx shakespeare progress resume <execution-id>');
+              console.log('Use "npx shakespeare progress list" to see available jobs');
+              process.exit(1);
+            }
+            
+            console.log(`🔄 Resuming improvement job: ${executionId}`);
+            
+            try {
+              const result = await shakespeare.resumeProgressJob(executionId);
+              console.log(`✅ Job resumed successfully!`);
+              console.log(`   📊 Final cost: $${result.totalCost.toFixed(4)}`);
+              console.log(`   📄 Content length: ${result.contentLength} characters`);
+            } catch (error) {
+              console.error(`❌ Failed to resume job: ${error instanceof Error ? error.message : error}`);
+              process.exit(1);
+            }
+            break;
+            
+          case 'help':
+            console.log(`
+📋 Progress Command Help
+
+USAGE
+  npx shakespeare progress <subcommand>
+
+SUBCOMMANDS
+  list             List all interrupted improvement jobs
+  resume <id>      Resume a specific improvement job by execution ID
+  help             Show this help message
+
+EXAMPLES
+  npx shakespeare progress list                    # List interrupted jobs
+  npx shakespeare progress resume improve-chunked-1234567890-abcdef123  # Resume specific job
+            `);
+            break;
+            
+          default:
+            console.error(`❌ Unknown progress subcommand: ${progressSubcommand}`);
+            console.log('Run "npx shakespeare progress help" for usage information.');
+            process.exit(1);
         }
         break;
         

@@ -1,3 +1,4 @@
 # Ignore Shakespeare log files
 *.log*
 *.log*
+*.txt

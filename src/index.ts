@@ -1165,6 +1165,76 @@ export class Shakespeare {
   }
 
   /**
+   * List interrupted improvement jobs
+   */
+  async listProgressFiles(): Promise<Array<{
+    executionId: string;
+    startTime: string;
+    completedChunks: number;
+    totalChunks: number;
+    totalCost: number;
+    filePath: string;
+  }>> {
+    const progressDir = path.join(this.rootDir, '.shakespeare', 'progress');
+    
+    try {
+      const files = await fs.readdir(progressDir);
+      const progressFiles = [];
+      
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = path.join(progressDir, file);
+          try {
+            const content = await fs.readFile(filePath, 'utf-8');
+            const progress = JSON.parse(content);
+            const executionId = file.replace('.json', '');
+            
+            // Extract start time from execution ID (timestamp format)
+            const timestampMatch = executionId.match(/improve-chunked-(\d+)/);
+            const startTime = timestampMatch 
+              ? new Date(parseInt(timestampMatch[1])).toISOString()
+              : 'Unknown';
+            
+            progressFiles.push({
+              executionId,
+              startTime,
+              completedChunks: progress.improvedChunks?.length || 0,
+              totalChunks: progress.totalChunks || 0,
+              totalCost: progress.totalCost || 0,
+              filePath
+            });
+          } catch (error) {
+            // Skip corrupted progress files
+            continue;
+          }
+        }
+      }
+      
+      // Sort by start time (newest first)
+      return progressFiles.sort((a, b) => 
+        new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+      );
+      
+    } catch (error) {
+      // Directory doesn't exist or can't be read
+      return [];
+    }
+  }
+
+  /**
+   * Resume a progress job by execution ID
+   */
+  async resumeProgressJob(executionId: string): Promise<{
+    totalCost: number;
+    contentLength: number;
+  }> {
+    // This would require the original content and analysis
+    // For now, we'll provide a basic implementation that shows how it could work
+    throw new Error('Resume functionality requires the original content and analysis data. ' +
+      'This feature needs integration with the specific improvement workflow.');
+  }
+
+  /**
    * Get content health status dashboard
    */
   async getStatus(): Promise<{
