@@ -551,7 +551,14 @@ export class AIScorer implements IContentScorer {
         
         // Check if this is a runtime error that should trigger fallback
         const errorMessage = lastError.message;
-        const isRuntimeError = errorMessage.startsWith('USAGE_CAP:') || errorMessage.startsWith('RUNTIME_ERROR:');
+        const isRuntimeError = errorMessage.startsWith('USAGE_CAP:') || 
+                              errorMessage.startsWith('RUNTIME_ERROR:') ||
+                              errorMessage.includes('Interrupted before the model replied') ||
+                              errorMessage.includes('connection') ||
+                              errorMessage.includes('timeout') ||
+                              errorMessage.includes('rate limit') ||
+                              errorMessage.includes('server error') ||
+                              errorMessage.includes('service unavailable');
         
         this.logger.error(`[${finalExecutionId}] Model ${i + 1}/${modelOptions.length} failed`, {
           executionId,
