@@ -191,18 +191,23 @@ export class MockContentScorer implements IContentScorer {
       contentDepth: { 
         reasoning: this.getDepthReasoning(content, scores.contentDepth), 
         suggestions: this.getDepthSuggestions(scores.contentDepth)
+      },
+      contentIntegrity: {
+        reasoning: 'Content integrity is excellent with reliable information',
+        suggestions: ['Maintain accuracy standards', 'Verify sources regularly']
       }
     };
 
     return { 
       analysis: { scores, analysis },
-      totalCost: 0.001,
+      totalCost: 0.0012,
       costBreakdown: {
         readability: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
         seoScore: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
         technicalAccuracy: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
         engagement: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
-        contentDepth: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() }
+        contentDepth: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() },
+        contentIntegrity: { provider: 'mock', model: 'mock', inputTokens: 100, outputTokens: 50, totalCost: 0.0002, timestamp: new Date().toISOString() }
       }
     };
   }
@@ -257,7 +262,8 @@ export class MockContentScorer implements IContentScorer {
       seoScore: Math.round(seoScore * 10) / 10,
       technicalAccuracy: Math.round(technicalAccuracy * 10) / 10,
       engagement: Math.round(engagement * 10) / 10,
-      contentDepth: Math.round(contentDepth * 10) / 10
+      contentDepth: Math.round(contentDepth * 10) / 10,
+      contentIntegrity: 9.0
     };
   }
 

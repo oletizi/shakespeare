@@ -32,8 +32,8 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
       // Add some test content
       await shakespeare.db.updateEntry('/test1.md', () => ({
         path: '/test1.md',
-        currentScores: { readability: 5, seoScore: 5, technicalAccuracy: 5, engagement: 5, contentDepth: 5 },
-        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8 },
+        currentScores: { readability: 5, seoScore: 5, technicalAccuracy: 5, engagement: 5, contentDepth: 5, contentIntegrity: 9.0 },
+        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8, contentIntegrity: 9.0 },
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_review' as ContentStatus,
@@ -63,8 +63,8 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
       // Add some test content
       const testEntry = {
         path: '/test2.md',
-        currentScores: { readability: 6, seoScore: 6, technicalAccuracy: 6, engagement: 6, contentDepth: 6 },
-        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8 },
+        currentScores: { readability: 6, seoScore: 6, technicalAccuracy: 6, engagement: 6, contentDepth: 6, contentIntegrity: 9.0 },
+        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8, contentIntegrity: 9.0 },
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_review' as ContentStatus,
@@ -99,8 +99,8 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
       // Add content with different statuses
       await shakespeare.db.updateEntry('/needs-review.md', () => ({
         path: '/needs-review.md',
-        currentScores: { readability: 5, seoScore: 5, technicalAccuracy: 5, engagement: 5, contentDepth: 5 },
-        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8 },
+        currentScores: { readability: 5, seoScore: 5, technicalAccuracy: 5, engagement: 5, contentDepth: 5, contentIntegrity: 9.0 },
+        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8, contentIntegrity: 9.0 },
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_review' as ContentStatus,
@@ -117,8 +117,8 @@ describe('API Consistency Fixes - v1.3.0 Bug Reports', () => {
 
       await shakespeare.db.updateEntry('/needs-improvement.md', () => ({
         path: '/needs-improvement.md',
-        currentScores: { readability: 7, seoScore: 7, technicalAccuracy: 7, engagement: 7, contentDepth: 7 },
-        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8 },
+        currentScores: { readability: 7, seoScore: 7, technicalAccuracy: 7, engagement: 7, contentDepth: 7, contentIntegrity: 9.0 },
+        targetScores: { readability: 8, seoScore: 8, technicalAccuracy: 8, engagement: 8, contentDepth: 8, contentIntegrity: 9.0 },
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_improvement' as ContentStatus,

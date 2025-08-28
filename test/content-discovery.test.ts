@@ -99,7 +99,8 @@ describe('Content Discovery', () => {
         seoScore: 8.5,
         technicalAccuracy: 9.0,
         engagement: 8.5,
-        contentDepth: 8.0
+        contentDepth: 8.0,
+        contentIntegrity: 9.0
       },
       analysis: {
         readability: { reasoning: 'Good content', suggestions: [] },
@@ -125,7 +126,7 @@ describe('Content Discovery', () => {
     const dbData = mockDatabase.getData();
     const entry = dbData.entries[targetPath] as ContentEntry;
     
-    expect(entry.status).toBe('needs_improvement'); // Average 8.4 < 8.5
+    expect(entry.status).toBe('meets_targets'); // Average 8.5 >= 8.5 (with contentIntegrity: 9.0)
     expect(entry.currentScores.readability).toBe(8.0);
     expect(entry.reviewHistory).toHaveLength(1);
     
@@ -153,7 +154,8 @@ describe('Content Discovery', () => {
         seoScore: 7.0,
         technicalAccuracy: 7.5,
         engagement: 7.0,
-        contentDepth: 7.3
+        contentDepth: 7.3,
+        contentIntegrity: 9.0
       },
       analysis: {
         readability: { reasoning: 'Poor readability', suggestions: [] },
@@ -201,7 +203,8 @@ describe('Content Discovery', () => {
         seoScore: 7.5,
         technicalAccuracy: 9.0,
         engagement: 8.5,
-        contentDepth: 8.0
+        contentDepth: 8.0,
+        contentIntegrity: 9.0
       },
       analysis: {
         readability: { reasoning: 'Good content', suggestions: [] },

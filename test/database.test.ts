@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from '@jest/globals';
 import { ContentDatabaseHandler } from '@/utils/database';
 import { ContentEntry, ContentDatabase } from '@/types/content';
+import { createMockContentEntry, createMockQualityDimensions } from './helpers/factories';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -44,7 +45,8 @@ describe('ContentDatabaseHandler', () => {
             seoScore: 7.5,
             technicalAccuracy: 9.0,
             engagement: 7.0,
-            contentDepth: 8.5
+            contentDepth: 8.5,
+            contentIntegrity: 9.0
           },
           targetScores: {
             readability: 8.0,
@@ -128,35 +130,19 @@ describe('ContentDatabaseHandler', () => {
   test('should update entry with new data', async () => {
     await db.load();
 
-    const newEntry: ContentEntry = {
+    const newEntry = createMockContentEntry({
       path: 'test.md',
-      currentScores: {
+      currentScores: createMockQualityDimensions({
         readability: 7.5,
         seoScore: 8.0,
         technicalAccuracy: 9.0,
         engagement: 7.0,
         contentDepth: 8.5
-      },
-      targetScores: {
-        readability: 8.0,
-        seoScore: 8.5,
-        technicalAccuracy: 9.0,
-        engagement: 8.0,
-        contentDepth: 8.5
-      },
+      }),
       lastReviewDate: '2023-01-01T00:00:00Z',
       improvementIterations: 1,
-      status: 'needs_improvement',
-      reviewHistory: [],
-      costAccounting: {
-        reviewCosts: 0,
-        improvementCosts: 0,
-        generationCosts: 0,
-        totalCost: 0,
-        operationHistory: [],
-        lastUpdated: new Date().toISOString()
-      }
-    };
+      status: 'needs_improvement'
+    });
 
     await db.updateEntry('test.md', () => newEntry);
 
@@ -175,14 +161,16 @@ describe('ContentDatabaseHandler', () => {
         seoScore: 7.0,
         technicalAccuracy: 8.0,
         engagement: 6.0,
-        contentDepth: 7.5
+        contentDepth: 7.5,
+        contentIntegrity: 9.0
       },
       targetScores: {
         readability: 8.0,
         seoScore: 8.5,
         technicalAccuracy: 9.0,
         engagement: 8.0,
-        contentDepth: 8.5
+        contentDepth: 8.5,
+        contentIntegrity: 9.0
       },
       lastReviewDate: '2023-01-01T00:00:00Z',
       improvementIterations: 0,
@@ -225,14 +213,16 @@ describe('ContentDatabaseHandler', () => {
         seoScore: 8.0,
         technicalAccuracy: 9.0,
         engagement: 7.5,
-        contentDepth: 8.0
+        contentDepth: 8.0,
+        contentIntegrity: 9.0
       },
       targetScores: {
         readability: 8.0,
         seoScore: 8.5,
         technicalAccuracy: 9.0,
         engagement: 8.0,
-        contentDepth: 8.5
+        contentDepth: 8.5,
+        contentIntegrity: 9.0
       },
       lastReviewDate: '2023-01-01T00:00:00Z',
       improvementIterations: 0,

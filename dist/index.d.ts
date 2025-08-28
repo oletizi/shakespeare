@@ -95,6 +95,7 @@ export declare class Shakespeare {
     reviewContent(path: string): Promise<void>;
     /**
      * Calculate overall quality score from quality dimensions
+     * Content integrity is treated as a gating factor - low integrity significantly impacts overall score
      */
     private calculateOverallQuality;
     /**

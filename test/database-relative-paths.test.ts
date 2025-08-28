@@ -37,14 +37,16 @@ describe('ContentDatabase Relative Paths', () => {
         seoScore: 6,
         technicalAccuracy: 8,
         engagement: 6,
-        contentDepth: 7
+        contentDepth: 7,
+        contentIntegrity: 9.0
       },
       targetScores: {
         readability: 8,
         seoScore: 8.5,
         technicalAccuracy: 9,
         engagement: 8,
-        contentDepth: 8.5
+        contentDepth: 8.5,
+        contentIntegrity: 9.0
       },
       lastReviewDate: new Date().toISOString(),
       improvementIterations: 0,
@@ -67,14 +69,16 @@ describe('ContentDatabase Relative Paths', () => {
         seoScore: 7,
         technicalAccuracy: 9,
         engagement: 8,
-        contentDepth: 8
+        contentDepth: 8,
+        contentIntegrity: 9.0
       },
       targetScores: {
         readability: 8,
         seoScore: 8.5,
         technicalAccuracy: 9,
         engagement: 8,
-        contentDepth: 8.5
+        contentDepth: 8.5,
+        contentIntegrity: 9.0
       },
       lastReviewDate: new Date().toISOString(),
       improvementIterations: 0,
@@ -178,8 +182,8 @@ describe('ContentDatabase Relative Paths', () => {
     for (let i = 0; i < testPaths.length; i++) {
       const entry: ContentEntry = {
         path: testPaths[i],
-        currentScores: { readability: 7, seoScore: 7, technicalAccuracy: 7, engagement: 7, contentDepth: 7 },
-        targetScores: { readability: 8, seoScore: 8.5, technicalAccuracy: 9, engagement: 8, contentDepth: 8.5 },
+        currentScores: { readability: 7, seoScore: 7, technicalAccuracy: 7, engagement: 7, contentDepth: 7, contentIntegrity: 9.0 },
+        targetScores: { readability: 8, seoScore: 8.5, technicalAccuracy: 9, engagement: 8, contentDepth: 8.5, contentIntegrity: 9.0 },
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_improvement',

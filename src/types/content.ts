@@ -7,6 +7,7 @@ export interface QualityDimensions {
   technicalAccuracy: number;
   engagement: number;
   contentDepth: number;
+  contentIntegrity: number;
 }
 
 /**

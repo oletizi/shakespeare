@@ -24,6 +24,7 @@ export declare const ANALYSIS_PROMPTS: {
     technicalAccuracy: string;
     engagement: string;
     contentDepth: string;
+    contentIntegrity: string;
 };
 /**
  * Prompt for content improvement
@@ -81,9 +82,13 @@ export declare class AIScorer implements IContentScorer {
      */
     private improveSingleContent;
     /**
-     * Validate improved content length
+     * Validate improved content for both length and quality issues
      */
     private validateImprovedContentLength;
+    /**
+     * Validate content integrity to catch AI artifacts and incomplete content
+     */
+    private validateContentIntegrity;
     private processAIResponse;
     /**
      * Batch scoring for cost optimization

@@ -85,33 +85,37 @@ These files allow inspection of:
 
     // Setup predictable AI responses
     const aiResponses = [
-      // Responses for article1.md scoring (5 dimensions)
+      // Responses for article1.md scoring (6 dimensions)
       '7.0\nDecent readability but could be improved\n- Add more examples\n- Break up long sentences',
       '6.5\nBasic SEO structure\n- Add more keywords\n- Improve title structure',
       '8.5\nTechnically accurate\n- Update for latest TypeScript version\n- Add code examples',
       '6.0\nSomewhat engaging\n- Add interactive examples\n- Include real-world use cases',
       '7.5\nGood depth for introduction\n- Expand on key concepts\n- Add more detailed explanations',
+      '9.0\nContent integrity is excellent\n- Information is accurate and reliable\n- Sources are credible',
       
-      // Responses for article2.md scoring (5 dimensions)
+      // Responses for article2.md scoring (6 dimensions)
       '8.0\nWell-structured content\n- Good use of headers\n- Clear explanations',
       '7.5\nGood SEO optimization\n- Well-organized headers\n- Good keyword usage',
       '9.0\nHighly accurate technical content\n- Up-to-date information\n- Excellent code examples',
       '8.5\nVery engaging content\n- Good examples\n- Interactive elements',
       '9.0\nComprehensive coverage\n- Detailed explanations\n- Advanced concepts well covered',
+      '9.0\nExcellent content integrity\n- Highly reliable information\n- Well-researched content',
       
-      // Responses for article3.md scoring (5 dimensions)
+      // Responses for article3.md scoring (6 dimensions)
       '5.0\nPoor readability due to brevity\n- Add more content\n- Expand explanations',
       '4.0\nPoor SEO due to lack of content\n- Add more keywords\n- Expand content length',
       '6.0\nAccurate but minimal\n- Add more technical details\n- Include examples',
       '3.0\nNot engaging due to brevity\n- Add examples\n- Include storytelling elements',
       '3.5\nLacks depth\n- Expand all sections\n- Add comprehensive coverage',
+      '9.0\nContent integrity is solid\n- Basic information is accurate\n- No misinformation present',
       
-      // Responses for nested-article.md scoring (5 dimensions)
+      // Responses for nested-article.md scoring (6 dimensions)
       '6.5\nReasonable readability\n- Add more structure\n- Include bullet points',
       '5.5\nBasic SEO\n- Improve meta information\n- Add more headers',
       '7.0\nAccurate content\n- Add more examples\n- Update with recent info',
       '6.0\nModerately engaging\n- Add visuals\n- Include interactive elements',
-      '6.5\nModerate depth\n- Expand key points\n- Add more detail'
+      '6.5\nModerate depth\n- Expand key points\n- Add more detail',
+      '9.0\nContent integrity is maintained\n- Information is trustworthy\n- No factual errors detected'
     ];
 
     mockAI = new MockAI(aiResponses);
@@ -218,6 +222,7 @@ These files allow inspection of:
       mockAI.addResponse('8.0\nAccurate\n- Add examples');
       mockAI.addResponse('7.0\nEngaging\n- Add more interaction');
       mockAI.addResponse('7.5\nGood depth\n- Expand sections');
+      mockAI.addResponse('9.0\nContent integrity excellent\n- Reliable information');
 
       // Run update again
       await shakespeare.updateContentIndex();
@@ -279,6 +284,7 @@ These files allow inspection of:
         '7.0\nMore accurate\n- Good improvements',
         '4.0\nStill needs engagement\n- Add examples',
         '5.0\nBetter depth\n- Continue expanding',
+        '9.0\nContent integrity maintained\n- Information remains accurate\n- No factual issues introduced',
         '# Improved Short Article\n\nThis content has been significantly expanded with more details and examples.\n\n## Key Points\n\n- Better structure\n- More comprehensive coverage\n- Enhanced readability'
       ];
       
@@ -398,6 +404,7 @@ These files allow inspection of:
       mockAI.addResponse('8.0\nGood\n- Nice work');
       mockAI.addResponse('5.0\nOkay\n- More work needed');
       mockAI.addResponse('6.0\nProgress\n- Keep going');
+      mockAI.addResponse('9.0\nContent integrity maintained\n- Information accurate');
       mockAI.addResponse('Improved content here');
 
       const targetPath = path.join(contentDir, 'article3.md');

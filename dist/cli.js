@@ -317,7 +317,9 @@ var DEFAULT_TARGET_SCORES = {
   seoScore: 8.5,
   technicalAccuracy: 9,
   engagement: 8,
-  contentDepth: 8.5
+  contentDepth: 8.5,
+  contentIntegrity: 9
+  // High target for content integrity - critical for production readiness
 };
 
 // src/utils/goose.ts
@@ -1101,6 +1103,35 @@ var ANALYSIS_PROMPTS = {
     
     Content to analyze:
     {content}
+    `,
+  contentIntegrity: `
+    Evaluate content integrity and completeness. Look for truncation messages, AI artifacts, incomplete sections, broken code blocks, or placeholder content that indicates the content is not production-ready.
+    
+    You MUST respond in this exact format:
+    
+    SCORE: [number from 0-10]
+    REASONING: [2-3 sentences explaining the score]
+    SUGGESTIONS:
+    - [Specific actionable suggestion 1]
+    - [Specific actionable suggestion 2]
+    - [Specific actionable suggestion 3]
+    
+    Score meanings:
+    0-3: Major integrity issues - contains truncation messages, incomplete sections, or AI artifacts
+    4-6: Some integrity issues - minor placeholders or formatting problems
+    7-8: Good integrity with minor issues - mostly complete and professional
+    9-10: Excellent integrity - complete, professional, production-ready content
+    
+    RED FLAGS TO CHECK FOR:
+    - Truncation messages like "[Content truncated...]", "[Continue with remaining sections...]"
+    - AI commentary like "Here's the improved content" or "I've updated the following"
+    - Placeholder text like "[TODO]", "[PLACEHOLDER]", "[INSERT EXAMPLE]"
+    - Incomplete code blocks (unclosed markdown code fences)
+    - Broken or incomplete sections
+    - Meta-commentary about the content instead of the content itself
+    
+    Content to analyze:
+    {content}
     `
 };
 var IMPROVEMENT_PROMPT = `
@@ -1512,12 +1543,13 @@ var AIScorer = class {
     throw new Error(`All ${modelOptions.length} model(s) failed. Last error: ${lastError?.message || "Unknown error"}`);
   }
   /**
-   * Validate improved content length
+   * Validate improved content for both length and quality issues
    */
   validateImprovedContentLength(improvedContent, originalContent, executionId) {
     const originalLength = originalContent.length;
     const finalLength = improvedContent.length;
     const lengthRatio = finalLength / originalLength;
+    this.validateContentIntegrity(improvedContent, executionId);
     if (finalLength < originalLength * 0.7) {
       this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
@@ -1546,6 +1578,74 @@ var AIScorer = class {
       });
       console.log(`\u2139\uFE0F  Improved content is longer than original (${Math.round(lengthRatio * 100)}% of original). This may indicate good expansion of ideas.`);
     }
+  }
+  /**
+   * Validate content integrity to catch AI artifacts and incomplete content
+   */
+  validateContentIntegrity(content, executionId) {
+    const integrityIssues = [];
+    const truncationPatterns = [
+      /\[Content truncated due to length limit[^\]]*\]/gi,
+      /\[Content continues\.\.\.\]/gi,
+      /\[Continue with remaining sections[^\]]*\]/gi,
+      /\[Remaining content[^\]]*\]/gi,
+      /\[Additional sections would include[^\]]*\]/gi,
+      /\[Further sections would cover[^\]]*\]/gi,
+      /\[The rest of the content[^\]]*\]/gi,
+      /\[Content shortened for brevity[^\]]*\]/gi,
+      /would continue with.*sections/gi
+    ];
+    for (const pattern of truncationPatterns) {
+      if (pattern.test(content)) {
+        integrityIssues.push(`Contains truncation message: ${pattern.source}`);
+      }
+    }
+    const commentaryPatterns = [
+      /^(Here's|Here is) (the|an?) improved/mi,
+      /^I('ve| have) (improved|enhanced|updated)/mi,
+      /^(Below is|The following is) the improved/mi,
+      /^Based on the analysis/mi,
+      /^After reviewing the content/mi,
+      /\*\*Note:\*\*/gi,
+      /\*\*Disclaimer:\*\*/gi,
+      /^(Let me|I'll) (improve|enhance|update)/mi
+    ];
+    for (const pattern of commentaryPatterns) {
+      if (pattern.test(content)) {
+        integrityIssues.push(`Contains AI commentary: ${pattern.source}`);
+      }
+    }
+    const codeBlockCount = (content.match(/```/g) || []).length;
+    if (codeBlockCount % 2 !== 0) {
+      integrityIssues.push("Contains unclosed code blocks");
+    }
+    const placeholderPatterns = [
+      /\[TODO[^\]]*\]/gi,
+      /\[PLACEHOLDER[^\]]*\]/gi,
+      /\[INSERT[^\]]*\]/gi,
+      /\[ADD[^\]]*\]/gi,
+      /\[EXAMPLE[^\]]*\]/gi,
+      /\[Your[^\]]*here\]/gi
+    ];
+    for (const pattern of placeholderPatterns) {
+      if (pattern.test(content)) {
+        integrityIssues.push(`Contains placeholder: ${pattern.source}`);
+      }
+    }
+    if (integrityIssues.length > 0) {
+      this.logger.error(`[${executionId}] Content integrity validation failed`, {
+        executionId,
+        issues: integrityIssues,
+        contentLength: content.length,
+        operation: "improve_content_integrity_validation_failed"
+      });
+      throw new Error(`Content integrity validation failed: ${integrityIssues.join(", ")}. The AI produced incomplete or inappropriate content.`);
+    }
+    this.logger.info(`[${executionId}] Content integrity validation passed`, {
+      executionId,
+      contentLength: content.length,
+      operation: "improve_content_integrity_validation_passed"
+    });
   }
   processAIResponse(response, executionId, originalContent) {
     this.logger.debug(`[${executionId}] Full AI response content`, {
@@ -1649,6 +1749,7 @@ var AIScorer = class {
       finalContent: improvedContent,
       operation: "improve_content_completed"
     });
+    this.validateContentIntegrity(improvedContent, executionId);
     if (finalLength < originalLength * 0.7) {
       this.logger.error(`[${executionId}] Content too short - likely parsing error or excessive condensation`, {
         executionId,
@@ -2257,8 +2358,16 @@ var Shakespeare = class _Shakespeare {
   }
   /**
    * Calculate overall quality score from quality dimensions
+   * Content integrity is treated as a gating factor - low integrity significantly impacts overall score
    */
   calculateOverallQuality(scores) {
+    if (scores.contentIntegrity < 4) {
+      this.logger.warn("Content integrity is critically low, capping overall quality score", {
+        contentIntegrity: scores.contentIntegrity,
+        operation: "calculate_overall_quality_integrity_penalty"
+      });
+      return Math.min(3, scores.contentIntegrity);
+    }
     const values = Object.values(scores);
     return values.reduce((sum, score) => sum + score, 0) / values.length;
   }
