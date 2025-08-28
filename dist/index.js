@@ -784,10 +784,10 @@ var ContentChunker = class {
   constructor(config, logger) {
     this.logger = logger ?? new ShakespeareLogger();
     this.config = {
-      maxChunkSize: 2e4,
-      // 20K chars - safe for most AI models
-      minChunkSize: 5e3,
-      // 5K chars minimum
+      maxChunkSize: 8e3,
+      // 8K chars - accounts for 120% expansion in output (8K → ~9.6K output)
+      minChunkSize: 2e3,
+      // 2K chars minimum
       splitOnHeaders: true,
       headerLevels: [1, 2, 3],
       // H1, H2, H3

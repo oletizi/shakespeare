@@ -12,8 +12,8 @@ export class ContentChunker {
   constructor(config?: Partial<ChunkingConfig>, logger?: ShakespeareLogger) {
     this.logger = logger ?? new ShakespeareLogger();
     this.config = {
-      maxChunkSize: 20000,  // 20K chars - safe for most AI models
-      minChunkSize: 5000,   // 5K chars minimum
+      maxChunkSize: 8000,   // 8K chars - accounts for 120% expansion in output (8K → ~9.6K output)
+      minChunkSize: 2000,   // 2K chars minimum
       splitOnHeaders: true,
       headerLevels: [1, 2, 3], // H1, H2, H3
       overlapLines: 2,
