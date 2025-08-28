@@ -49,7 +49,15 @@ describe('ContentDatabase Relative Paths', () => {
       lastReviewDate: new Date().toISOString(),
       improvementIterations: 0,
       status: 'needs_improvement',
-      reviewHistory: []
+      reviewHistory: [],
+      costAccounting: {
+        reviewCosts: 0,
+        improvementCosts: 0,
+        generationCosts: 0,
+        totalCost: 0,
+        operationHistory: [],
+        lastUpdated: new Date().toISOString()
+      }
     };
 
     const entry2: ContentEntry = {
@@ -71,7 +79,15 @@ describe('ContentDatabase Relative Paths', () => {
       lastReviewDate: new Date().toISOString(),
       improvementIterations: 0,
       status: 'meets_targets',
-      reviewHistory: []
+      reviewHistory: [],
+      costAccounting: {
+        reviewCosts: 0,
+        improvementCosts: 0,
+        generationCosts: 0,
+        totalCost: 0,
+        operationHistory: [],
+        lastUpdated: new Date().toISOString()
+      }
     };
 
     // Add entries using absolute paths (internal API)
@@ -167,7 +183,15 @@ describe('ContentDatabase Relative Paths', () => {
         lastReviewDate: new Date().toISOString(),
         improvementIterations: 0,
         status: 'needs_improvement',
-        reviewHistory: []
+        reviewHistory: [],
+        costAccounting: {
+          reviewCosts: 0,
+          improvementCosts: 0,
+          generationCosts: 0,
+          totalCost: 0,
+          operationHistory: [],
+          lastUpdated: new Date().toISOString()
+        }
       };
       
       await newDb.updateEntry(testPaths[i], () => entry);

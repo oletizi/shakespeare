@@ -56,7 +56,15 @@ describe('ContentDatabaseHandler', () => {
           lastReviewDate: '2023-01-01T00:00:00Z',
           improvementIterations: 0,
           status: 'needs_improvement',
-          reviewHistory: []
+          reviewHistory: [],
+          costAccounting: {
+            reviewCosts: 0,
+            improvementCosts: 0,
+            generationCosts: 0,
+            totalCost: 0,
+            operationHistory: [],
+            lastUpdated: new Date().toISOString()
+          }
         }
       }
     };
@@ -139,7 +147,15 @@ describe('ContentDatabaseHandler', () => {
       lastReviewDate: '2023-01-01T00:00:00Z',
       improvementIterations: 1,
       status: 'needs_improvement',
-      reviewHistory: []
+      reviewHistory: [],
+      costAccounting: {
+        reviewCosts: 0,
+        improvementCosts: 0,
+        generationCosts: 0,
+        totalCost: 0,
+        operationHistory: [],
+        lastUpdated: new Date().toISOString()
+      }
     };
 
     await db.updateEntry('test.md', () => newEntry);
@@ -171,7 +187,15 @@ describe('ContentDatabaseHandler', () => {
       lastReviewDate: '2023-01-01T00:00:00Z',
       improvementIterations: 0,
       status: 'needs_improvement',
-      reviewHistory: []
+      reviewHistory: [],
+      costAccounting: {
+        reviewCosts: 0,
+        improvementCosts: 0,
+        generationCosts: 0,
+        totalCost: 0,
+        operationHistory: [],
+        lastUpdated: new Date().toISOString()
+      }
     };
 
     await db.updateEntry('test.md', () => initialEntry);
@@ -213,7 +237,15 @@ describe('ContentDatabaseHandler', () => {
       lastReviewDate: '2023-01-01T00:00:00Z',
       improvementIterations: 0,
       status: 'meets_targets',
-      reviewHistory: []
+      reviewHistory: [],
+      costAccounting: {
+        reviewCosts: 0,
+        improvementCosts: 0,
+        generationCosts: 0,
+        totalCost: 0,
+        operationHistory: [],
+        lastUpdated: new Date().toISOString()
+      }
     };
 
     const testFilePath = path.resolve(path.dirname(testDbPath), 'test.md');
